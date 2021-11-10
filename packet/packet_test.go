@@ -2,6 +2,8 @@ package packet_test
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"fmt"
 	"math/big"
@@ -68,12 +70,146 @@ func TestPacket(t *testing.T) {
 
 }
 
-// 随机测试
+func BenchmarkPack(b *testing.B) {
+	var length int = 1400
+
+	var p *packet.Packet = &packet.Packet{}
+	var tmp []byte = make([]byte, 16)
+	rand.Read(tmp)
+	var key [16]byte
+	var none [12]byte
+	copy(key[:], tmp)
+	rand.Read(tmp)
+	copy(none[:], tmp)
+	if err := p.SetKey(key, none); err != nil {
+		b.Fatal(err)
+	}
+
+	var tda []byte = make([]byte, length)
+	rand.Read(tda)
+	var da []byte = make([]byte, len(tda), len(tda)+29)
+
+	var fi = uint32(randInt(0, 1<<30-1))
+	var bias = uint64(randInt(0, 1<<63-1)) // 实际应该1<<64-1太大了容不下
+	var pt = uint8(randInt(0, 1<<5-1))
+
+	b.SetBytes(int64(length))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(da[:length], tda)
+		p.Pack(da[:length], fi, bias, pt)
+	}
+}
+
+func BenchmarkParse(b *testing.B) {
+	var length int = 1400
+
+	var p *packet.Packet = &packet.Packet{}
+	var tmp []byte = make([]byte, 16)
+	rand.Read(tmp)
+	var key [16]byte
+	var none [12]byte
+	copy(key[:], tmp)
+	rand.Read(tmp)
+	copy(none[:], tmp)
+	if err := p.SetKey(key, none); err != nil {
+		b.Fatal(err)
+	}
+
+	var tda []byte = make([]byte, length, length+29)
+	rand.Read(tda)
+	var fi = uint32(randInt(0, 1<<30-1))
+	var bias = uint64(randInt(0, 1<<63-1)) // 实际应该1<<64-1太大了容不下
+	var pt = uint8(randInt(0, 1<<5-1))
+	ctl, err := p.Pack(tda[:length], fi, bias, pt)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	var da []byte = make([]byte, len(tda))
+
+	b.SetBytes(int64(length))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(da[:], tda[:ctl])
+		p.Parse(da)
+	}
+}
+
+func BenchmarkEnGCM(b *testing.B) {
+	var length int = 1400
+
+	var tmp []byte = make([]byte, 16)
+	rand.Read(tmp)
+	var key [16]byte
+	var none [12]byte
+	copy(key[:], tmp)
+	rand.Read(tmp)
+	copy(none[:], tmp)
+
+	var gcm cipher.AEAD
+	if block, err := aes.NewCipher(key[:]); err != nil {
+		b.Fatal(err)
+	} else {
+		if gcm, err = cipher.NewGCM(block); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	var tda []byte = make([]byte, length)
+	rand.Read(tda)
+	var da []byte = make([]byte, len(tda), len(tda)+29)
+	var head []byte = make([]byte, 13)
+	rand.Read(head)
+
+	b.SetBytes(int64(length))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(da[:length], tda)
+		da = gcm.Seal(da[:0], none[:], da[:length], head)
+	}
+}
+
+func BenchmarkDeGCM(b *testing.B) {
+	var length int = 1400
+
+	var tmp []byte = make([]byte, 16)
+	rand.Read(tmp)
+	var key [16]byte
+	var none [12]byte
+	copy(key[:], tmp)
+	rand.Read(tmp)
+	copy(none[:], tmp)
+
+	var gcm cipher.AEAD
+	if block, err := aes.NewCipher(key[:]); err != nil {
+		b.Fatal(err)
+	} else {
+		if gcm, err = cipher.NewGCM(block); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	var tda []byte = make([]byte, length, length+29)
+	rand.Read(tda)
+	var head []byte = make([]byte, 13)
+	rand.Read(head)
+	tda = gcm.Seal(tda[:0], none[:], tda[:length], head) // 密文
+	var da []byte = make([]byte, len(tda))
+
+	b.SetBytes(int64(length))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		n := copy(da[:], tda)
+		da = gcm.Seal(da[:0], none[:], da[:n], head)
+	}
+}
+
+// 测试
 func test(t *testing.T, v *v) {
 
 	var tda []byte = make([]byte, v.length)
 	rand.Read(tda)
-
 	var da []byte = make([]byte, len(tda), cap(tda)+29)
 	copy(da, tda)
 	var n uint16
