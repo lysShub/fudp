@@ -17,6 +17,8 @@ import (
 	"time"
 )
 
+// 证书相关
+
 // CreateSelfSignedCert_ECC 生成ECC 256自签证书
 //
 // 参考: https://golang.org/src/crypto/tls/generate_cert.go

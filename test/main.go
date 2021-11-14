@@ -4,10 +4,22 @@ import (
 	"fmt"
 	_ "net/http/pprof"
 
+	"github.com/lysShub/fudp/internal/crypter/cert"
 	"github.com/lysShub/fudp/internal/crypter/ecc"
 )
 
 func main() {
+	c, k, err := cert.CreateEccCert(nil)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(c))
+	// fmt.Println("")
+	// fmt.Println(k)
+	pub, _, _, _ := cert.GetCertInfo(c)
+	fmt.Println(pub)
+	return
+	fmt.Println(k)
 
 	pri, pub, err := ecc.GenerateKey()
 	if err != nil {

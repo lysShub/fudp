@@ -13,7 +13,7 @@ import (
 )
 
 type v struct {
-	p *packet.Packet
+	gcm packet.Gcm
 
 	length uint16
 	fi     uint32
@@ -23,9 +23,6 @@ type v struct {
 
 func TestPacket(t *testing.T) {
 
-	var unEncrypt *packet.Packet = &packet.Packet{}
-	var encrypt *packet.Packet = &packet.Packet{}
-
 	var tmp []byte = make([]byte, 16)
 	rand.Read(tmp)
 	var key [16]byte
@@ -33,35 +30,36 @@ func TestPacket(t *testing.T) {
 	copy(key[:], tmp)
 	rand.Read(tmp)
 	copy(none[:], tmp)
-	if err := encrypt.SetKey(key, none); err != nil {
+	gcm, err := Newgcm(key, none)
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	var m []v = []v{
-		{unEncrypt, 0, 0, 0, 0},
-		{unEncrypt, 65506, uint32(1<<30 - 1), uint64(1<<64 - 1), uint8(1<<5 - 1)},
-		{encrypt, 0, 0, 0, 0},
-		{encrypt, 65506, uint32(1<<30 - 1), uint64(1<<64 - 1), uint8(1<<5 - 1)},
-		randStruct(unEncrypt),
-		randStruct(unEncrypt),
-		randStruct(unEncrypt),
-		randStruct(unEncrypt),
-		randStruct(unEncrypt),
-		randStruct(unEncrypt),
-		randStruct(unEncrypt),
-		randStruct(unEncrypt),
-		randStruct(unEncrypt),
-		randStruct(unEncrypt),
-		randStruct(unEncrypt),
-		randStruct(encrypt),
-		randStruct(encrypt),
-		randStruct(encrypt),
-		randStruct(encrypt),
-		randStruct(encrypt),
-		randStruct(encrypt),
-		randStruct(encrypt),
-		randStruct(encrypt),
-		randStruct(encrypt),
+		{nil, 0, 0, 0, 0},
+		{nil, 65506, uint32(1<<30 - 1), uint64(1<<64 - 1), uint8(1<<5 - 1)},
+		{gcm, 0, 0, 0, 0},
+		{gcm, 65506, uint32(1<<30 - 1), uint64(1<<64 - 1), uint8(1<<5 - 1)},
+		randStruct(nil),
+		randStruct(nil),
+		randStruct(nil),
+		randStruct(nil),
+		randStruct(nil),
+		randStruct(nil),
+		randStruct(nil),
+		randStruct(nil),
+		randStruct(nil),
+		randStruct(nil),
+		randStruct(nil),
+		randStruct(gcm),
+		randStruct(gcm),
+		randStruct(gcm),
+		randStruct(gcm),
+		randStruct(gcm),
+		randStruct(gcm),
+		randStruct(gcm),
+		randStruct(gcm),
+		randStruct(gcm),
 	}
 
 	for _, v := range m {
@@ -73,7 +71,6 @@ func TestPacket(t *testing.T) {
 func BenchmarkPack(b *testing.B) {
 	var length int = 1400
 
-	var p *packet.Packet = &packet.Packet{}
 	var tmp []byte = make([]byte, 16)
 	rand.Read(tmp)
 	var key [16]byte
@@ -81,7 +78,8 @@ func BenchmarkPack(b *testing.B) {
 	copy(key[:], tmp)
 	rand.Read(tmp)
 	copy(none[:], tmp)
-	if err := p.SetKey(key, none); err != nil {
+	p, err := Newgcm(key, none)
+	if err != nil {
 		b.Fatal(err)
 	}
 
@@ -97,14 +95,13 @@ func BenchmarkPack(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		copy(da[:length], tda)
-		p.Pack(da[:length], fi, bias, pt)
+		packet.Pack(da[:length], fi, bias, pt, p)
 	}
 }
 
 func BenchmarkParse(b *testing.B) {
 	var length int = 1400
 
-	var p *packet.Packet = &packet.Packet{}
 	var tmp []byte = make([]byte, 16)
 	rand.Read(tmp)
 	var key [16]byte
@@ -112,7 +109,8 @@ func BenchmarkParse(b *testing.B) {
 	copy(key[:], tmp)
 	rand.Read(tmp)
 	copy(none[:], tmp)
-	if err := p.SetKey(key, none); err != nil {
+	p, err := Newgcm(key, none)
+	if err != nil {
 		b.Fatal(err)
 	}
 
@@ -121,7 +119,7 @@ func BenchmarkParse(b *testing.B) {
 	var fi = uint32(randInt(0, 1<<30-1))
 	var bias = uint64(randInt(0, 1<<63-1)) // 实际应该1<<64-1太大了容不下
 	var pt = uint8(randInt(0, 1<<5-1))
-	ctl, err := p.Pack(tda[:length], fi, bias, pt)
+	ctl, err := packet.Pack(tda[:length], fi, bias, pt, p)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -132,7 +130,7 @@ func BenchmarkParse(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		copy(da[:], tda[:ctl])
-		p.Parse(da)
+		packet.Parse(da, p)
 	}
 }
 
@@ -214,11 +212,11 @@ func test(t *testing.T, v *v) {
 	copy(da, tda)
 	var n uint16
 	var err error
-	if n, err = v.p.Pack(da, v.fi, v.bias, v.pt); err != nil {
+	if n, err = packet.Pack(da, v.fi, v.bias, v.pt, v.gcm); err != nil {
 		t.Fatal(err)
 	}
 
-	length1, fi1, bias1, pt1, err := v.p.Parse(da[:n])
+	length1, fi1, bias1, pt1, err := packet.Parse(da[:n], v.gcm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,14 +237,26 @@ func test(t *testing.T, v *v) {
 	}
 }
 
-func randStruct(p *packet.Packet) v {
+func randStruct(p packet.Gcm) v {
 	return v{
-		p:      p,
+		gcm:    p,
 		length: uint16(randInt(0, 65506)),
 		fi:     uint32(randInt(0, 1<<30-1)),
 		bias:   uint64(randInt(0, 1<<63-1)), // 实际应该1<<64-1太大了容不下
 		pt:     uint8(randInt(0, 1<<5-1)),
 	}
+}
+
+func Newgcm(key [16]byte, none [12]byte) (packet.Gcm, error) {
+	var gcm packet.Gcm
+	if block, err := aes.NewCipher(key[:]); err != nil {
+		return nil, err
+	} else {
+		if gcm, err = cipher.NewGCM(block); err != nil {
+			return nil, err
+		}
+	}
+	return gcm, nil
 }
 
 func randInt(min, max int) int {

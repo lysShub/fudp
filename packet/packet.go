@@ -1,40 +1,32 @@
 package packet
 
 import (
-	"crypto/aes"
 	"crypto/cipher"
 	"errors"
 	"strconv"
-	"sync"
 )
 
-type Packet struct {
-	// 协议包格式/解析
+type Gcm cipher.AEAD
 
-	// lock    sync.Mutex
-	sync.Mutex
-	encrypt bool
-	key     [16]byte
-	none    [12]byte
-	gcm     cipher.AEAD
-}
+var none []byte = make([]byte, 12)
 
 // pack 打包, 确保data有足够的容量, 否则会打包失败
 // 	@ data: 数据，其cap至少应该比len大29(13+16); 最大小不大于65506
 // 	@ pt:	包类型
 // 	@ bias:	数据偏置
 // 	@ fi:	文件序号
+// 	@ gcm:	gcm实例, 为nil表示不加密
 // 返回包的有效长度
-func (p *Packet) Pack(data []byte, fi uint32, bias uint64, pt uint8) (length uint16, err error) {
+func Pack(data []byte, fi uint32, bias uint64, pt uint8, gcm Gcm) (length uint16, err error) {
 
 	if cap(data)-len(data) < 29 {
 		return 0, errors.New("expect capacity of data more than length 29, actual len(data):" + strconv.Itoa(len(data)) + "   cap(data):" + strconv.Itoa(cap(data)))
 	} else if fi > 0x3FFFFFFF {
-		return 0, errors.New("invalid fi, expcet fi <=0x3FFFFFFF, actual " + strconv.FormatInt(int64(fi), 0xf))
+		return 0, errors.New("expcet fi <=0x3FFFFFFF, actual " + strconv.FormatInt(int64(fi), 0xf))
 	} else if pt > 0b11111 {
-		return 0, errors.New("invalid pt, expcet pt <=0x1F, actual " + strconv.FormatInt(int64(pt), 16))
-	} else if len(data) > 65506 { // UDP无法承受之重与uint16无法承受之重
-		return 0, errors.New("expect length of parameter date not more than 65506, actual len(data):" + strconv.Itoa(len(data)))
+		return 0, errors.New("expcet pt <=0x1F, actual " + strconv.FormatInt(int64(pt), 16))
+	} else if len(data) > 65506 { // UDP MTU为65535; 65535-13-16=65506
+		return 0, errors.New("expect length of parameter date not more than 65506, actual :" + strconv.Itoa(len(data)))
 	}
 
 	var head []byte = make([]byte, 0, 13)
@@ -63,8 +55,8 @@ func (p *Packet) Pack(data []byte, fi uint32, bias uint64, pt uint8) (length uin
 	head = append(head, ((lbias-1)&0b111)<<5+pt&0b11111)
 
 	hl := lfi + lbias + 2
-	if p.encrypt {
-		data = p.gcm.Seal(data[:0], p.none[:], data, head[:hl])
+	if gcm != nil {
+		data = gcm.Seal(data[:0], none, data, head[:hl])
 		data = append(data[:], head[:hl]...)
 		return uint16(len(data)), nil
 	} else {
@@ -74,7 +66,9 @@ func (p *Packet) Pack(data []byte, fi uint32, bias uint64, pt uint8) (length uin
 }
 
 // parse 解包
-func (p *Packet) Parse(data []byte) (length uint16, fi uint32, bias uint64, pt uint8, err error) {
+// 	@ data: 协议包格式的数据
+// 	@ gcm:	gcm实例, 为nil表示不解密
+func Parse(data []byte, gcm Gcm) (length uint16, fi uint32, bias uint64, pt uint8, err error) {
 	l := len(data) - 1
 
 	if l >= 2 {
@@ -100,8 +94,9 @@ func (p *Packet) Parse(data []byte) (length uint16, fi uint32, bias uint64, pt u
 		return 0, 0, 0, 0, errors.New("parse fail: lfi")
 	}
 
-	if p.encrypt {
-		data, err = p.gcm.Open(data[:0], p.none[:], data[:l+1], data[l+1:])
+	if gcm != nil {
+		// l 密文最后一字节在data中位置
+		data, err = gcm.Open(data[:0], none, data[:l+1], data[l+1:])
 		if err != nil {
 			length = 0
 		} else {
@@ -111,22 +106,4 @@ func (p *Packet) Parse(data []byte) (length uint16, fi uint32, bias uint64, pt u
 		length = uint16(l) + 1
 	}
 	return
-}
-
-// SetKey 设置加密, 设置以后所有发送的包都会被加密、所有接收的包都会被解密
-//	@key: 密钥  @none: 随机数       传输双方必须相同
-func (p *Packet) SetKey(key [16]byte, none [12]byte) error {
-	p.Lock()
-	copy(p.key[:], key[:])
-	copy(p.none[:], none[:])
-	if block, err := aes.NewCipher(p.key[:]); err != nil {
-		return err
-	} else {
-		if p.gcm, err = cipher.NewGCM(block); err != nil {
-			return err
-		}
-	}
-	p.encrypt = true
-	p.Unlock()
-	return nil
 }

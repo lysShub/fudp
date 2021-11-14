@@ -1,65 +1,47 @@
 package fudp
 
+// 可靠文件(夹)传输协议
+// 点对点、端到端
+
 import (
 	"net"
-	"os"
+	"net/url"
 )
 
-// 可靠文件(夹)传输协议
+// fudp的工作模式
+// 点对点、端到端
 
 type fudp struct {
 	// 一个fudp代表一次传输
 
-	// AES_GCM 对称加密
-	secretKey    [16]byte                          // 加密密钥
-	none         [12]byte                          // 随机值
-	secretKeySet bool                              // 是否设置加密
-	SetSecretKey func(key [16]byte, none [12]byte) // 设置密钥
-}
+	// 网络
+	// connected sokcet; P-P模式时双方都使用dial创建原始的udp connect
+	// S-C模式时, Client使用dial创建原始的udp connect, Server使用ioer
+	conn *net.UDPConn // connected socket
 
-type Conf struct {
-	// 实例启动参数
+	// 传输
+	mut int
 
-	// 实例启动的模式
-	// 比如启动一个Listen实例, 这个实例可以存在至少三种模式：只允许下载、只许上传、支持上传下载
-	// 第一位为1: 下载; 第二位为1: 上传; .....待完善
+	// 工作模式
+	// 0: P-P   1: C-S
 	mode uint8
 
-	// 上传, 下载根目录
-	// 上传根目录指传给对方文件所在本机的根目录
-	// 下载根目录指对方发过来的文件存储在本机的根目录
-	uPath, dPath string
+	// 权限
+	// 0b1: 允许下载  0b10: 允许上传 其他待定
+	auth          uint8
+	UserVerifyAct func(pars *url.URL) uint8 // 用户握手请求校验, 握手包0中的格式化数据
 
-	// 公钥，在传输双方供中接收方使用。如果不为nil，验签时将最优先使用; 如果不填写将依次尝试
-	// CA证书、自签证书验签。
-	// 更多信息查阅：
-	// https://github.com/lysShub/fudp
-	publicKey []byte
+	// 上传下载路径
+	upLoadDir, downLoadDir string
+
+	/* 安全 */
+	caCert, caKey []byte   // 证书、密钥 (ECC 256)。对于Server两个都必须存在；对于Client证书存在代表是自签证书
+	pubKey        []byte   // 非对称加密公钥。 对于Server相对于证书; 对于Client则是验签的公钥用于验签
+	secretKey     [16]byte // 对称加密(AES_GCM_128)密钥
 }
 
-func NewUploadConf(path string, f func(*Conf) *Conf) (*Conf, error) {
-	os.Stat(path)
+// Run 启动
+func (f *fudp) Run() error {
 
-	var c = new(Conf)
-	c = f(c)
-	c.mode = 0b10
-
-	return c, nil
-}
-
-func NewDownloadConf(path string, f func(*Conf) *Conf) (*Conf, error) {
-	os.Stat(path)
-
-	var c = new(Conf)
-	c = f(c)
-	c.mode = 0b01
-	return c, nil
-}
-
-func (f *fudp) Listen(laddr *net.UDPAddr, conf *Conf) error {
-	return nil
-}
-
-func (f *fudp) UpLoad(raddr *net.UDPAddr, conf *Conf) error {
 	return nil
 }
