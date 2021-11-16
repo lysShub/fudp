@@ -6,7 +6,6 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -19,6 +18,19 @@ import (
 
 // 证书相关
 
+var temp *x509.Certificate = &x509.Certificate{
+	SerialNumber: big.NewInt(int64(0)), // CA颁发证书对应的唯一序列号，自签填个随机数即可
+	NotBefore:    time.Now(),
+	NotAfter:     time.Now().AddDate(0, 0, 1), // 有效期结束时间
+
+	KeyUsage:              x509.KeyUsageDigitalSignature,
+	ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	BasicConstraintsValid: true,
+
+	// 按需添加信息
+	// IPAddresses: nil,
+}
+
 // CreateEccCert 生成ECC 256证书
 //	rootCert为nil则为自签证书
 // 参考: https://golang.org/src/crypto/tls/generate_cert.go
@@ -30,29 +42,13 @@ func CreateEccCert(rootCert *x509.Certificate, tmplate ...*x509.Certificate) (ce
 	}
 	fmt.Println(publicKey)
 
-	var temp *x509.Certificate
 	// 模板
-	if len(tmplate) == 0 {
-		temp = &x509.Certificate{
-			SerialNumber: big.NewInt(int64(0)), // CA颁发证书对应的唯一序列号，自签填个随机数即可
-			Subject: pkix.Name{
-				Organization: []string{"unknown"}, // 组织名
-			},
-			NotBefore: time.Now(),
-			NotAfter:  time.Now().AddDate(99, 0, 0), // 有效期结束时间
-
-			KeyUsage:              x509.KeyUsageDigitalSignature,
-			ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-			BasicConstraintsValid: true,
-
-			// 按需添加信息
-			// IPAddresses: nil,
-		}
-	} else {
-		temp = tmplate[0]
+	var myTemp, myRootTemp *x509.Certificate = temp, temp
+	if len(tmplate) != 0 {
+		myTemp = tmplate[0]
 	}
-	if rootCert == nil {
-		rootCert = temp
+	if rootCert != nil {
+		myRootTemp = rootCert
 	}
 
 	var pri interface{} // *ecdsa.PrivateKey
@@ -60,7 +56,7 @@ func CreateEccCert(rootCert *x509.Certificate, tmplate ...*x509.Certificate) (ce
 		return nil, nil, err
 	}
 
-	derBytes, err := x509.CreateCertificate(rand.Reader, temp, rootCert, &(pri.(*ecdsa.PrivateKey).PublicKey), pri)
+	derBytes, err := x509.CreateCertificate(rand.Reader, myTemp, myRootTemp, &(pri.(*ecdsa.PrivateKey).PublicKey), pri)
 	if err != nil {
 		panic(err)
 	}
@@ -109,9 +105,14 @@ func VerifyCertificate(certificatePEM []byte, rootCertificatePEM ...[]byte) erro
 	return nil
 }
 
+// CertFormatCheck 校验证书格式
+func CertFormatCheck(cert []byte) bool {
+	_, _, _, err := GetCertInfo(cert)
+	return err == nil
+}
+
 // GetCertInfo 提取ECC证书中的公钥、签名、数据
 func GetCertInfo(cert []byte) (PublicKey []byte, Signature []byte, data []byte, err error) {
-
 	p, _ := pem.Decode(cert)
 	if p == nil {
 		panic("证书不是PEM格式")
@@ -129,5 +130,13 @@ func GetCertInfo(cert []byte) (PublicKey []byte, Signature []byte, data []byte, 
 	} else {
 		return nil, nil, nil, errors.New("invalid type of publice key, Type: " + fmt.Sprintf("%T", pub))
 	}
+}
 
+// GetKeyInfo 获取ECC密钥的信息
+func GetKeyInfo(key []byte) (prikey []byte, err error) {
+	p, r := pem.Decode(key)
+	if len(r) != 0 {
+		return nil, errors.New("key parse fail")
+	}
+	return p.Bytes, nil
 }

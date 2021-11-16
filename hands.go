@@ -38,8 +38,8 @@ func (f *fudp) HandReceive() error {
 
 				// 回复握手包1
 				buff[0] = code
-				buff = append(buff[1:1:65536], f.caCert...)
-				if length, err = packet.Pack(buff[:len(f.caCert)+1], 1, 0, 0, nil); err != nil {
+				buff = append(buff[1:1:65536], f.cert...)
+				if length, err = packet.Pack(buff[:len(f.cert)+1], 1, 0, 0, nil); err != nil {
 					return err
 				}
 				if _, err = f.conn.Write(buff[:length]); err != nil {
@@ -70,7 +70,11 @@ func (f *fudp) HandReceive() error {
 							goto HANDHSAKE0 // 回退到握手包0
 						} else if length != 0 && fi == 2 && bias == 0 && pt == 0 {
 							// 收到握手包2
-							if pt, err := ecc.Decrypt(f.pubKey, buff[:length]); err != nil {
+							var pri []byte
+							if pri, err = cert.GetKeyInfo(f.key); err != nil {
+								return err
+							}
+							if pt, err := ecc.Decrypt(pri, buff[:length]); err != nil {
 								return err
 							} else if n = copy(f.secretKey[:], pt); n != 16 || len(pt) != 16 {
 								return errors.New("非对称解密错误：长度不正确： " + strconv.Itoa(n) + "  " + strconv.Itoa(len(pt)))
@@ -141,36 +145,37 @@ func (f *fudp) HandSend(actDonwload bool, data string) error {
 						return nil
 					}
 					ca := buff[1:]
-					if f.pubKey != nil { // 临时密钥
-						pubkey, signature, data, err := cert.GetCertInfo(ca)
+
+					// 证书校验
+					if f.mode == 0 {
+						pub, sign, da, err := cert.GetCertInfo(ca)
 						if err != nil {
 							return err
 						}
-						if !bytes.Equal(pubkey, f.pubKey) {
-							return errors.New("非法的CA证书, 你可能找到网络攻击")
-						}
-						if ok, err := ecc.Verify(pubkey, signature, data); err != nil {
-							return err
-						} else if !ok {
-							return errors.New("非法的CA证书, 你可能找到网络攻击")
+						if bytes.Equal(pub, f.tocken) {
+							ecc.Verify(f.tocken, sign, da)
+						} else {
+
 						}
 
-					} else if f.caCert != nil { // 自签
-						if err := cert.VerifyCertificate(ca, f.caCert); err != nil {
-							return err
-						}
-					} else { // CA验证
-						if err := cert.VerifyCertificate(ca, nil); err != nil {
-							return err
-						}
 					}
+
+					// if f.cert != nil { // 自签
+					// 	if err := cert.VerifyCertificate(ca, f.cert); err != nil {
+					// 		return err
+					// 	}
+					// } else { // CA验证
+					// 	if err := cert.VerifyCertificate(ca, nil); err != nil {
+					// 		return err
+					// 	}
+					// }
 
 					// 回复握手包2
 					var secretKey []byte = make([]byte, 16)
 					rand.Read(secretKey)
 					copy(buff[0:], secretKey)
 
-					if ct, err := ecc.Encrypt(f.pubKey, f.secretKey[:]); err != nil {
+					if ct, err := ecc.Encrypt(f.key, f.secretKey[:]); err != nil {
 						return err
 					} else {
 

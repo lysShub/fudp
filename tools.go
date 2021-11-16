@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 )
 
-func verifyPath(path string, upload bool) error {
-	if upload {
+func verifyPath(path string, isSend bool) error {
+	if isSend {
 		fi, err := os.Stat(path)
 		if os.IsNotExist(err) {
 			return errors.New("invalid path: not exist")
