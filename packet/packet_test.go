@@ -21,6 +21,13 @@ type v struct {
 	pt     uint8
 }
 
+func TestMy(t *testing.T) {
+	var data = []byte{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 224}
+
+	fmt.Println(packet.Parse(data, nil))
+	t.Fatal(packet.Parse(data, nil))
+}
+
 func TestPacket(t *testing.T) {
 
 	var tmp []byte = make([]byte, 16)

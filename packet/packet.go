@@ -4,6 +4,8 @@ import (
 	"crypto/cipher"
 	"errors"
 	"strconv"
+
+	"github.com/lysShub/fudp/constant"
 )
 
 type Gcm cipher.AEAD
@@ -11,11 +13,11 @@ type Gcm cipher.AEAD
 var none []byte = make([]byte, 12)
 
 // pack 打包, 确保data有足够的容量, 否则会打包失败
-// 	@ data: 数据，其cap至少应该比len大29(13+16); 最大小不大于65506
-// 	@ pt:	包类型
-// 	@ bias:	数据偏置
-// 	@ fi:	文件序号
-// 	@ gcm:	gcm实例, 为nil表示不加密
+// 	@ data:  容量至少应该比长度大29
+// 	@ pt:    包类型
+// 	@ bias:  数据偏置
+// 	@ fi:    文件序号
+// 	@ gcm:   gcm实例, 为nil表示不加密
 // 返回包的有效长度
 func Pack(data []byte, fi uint32, bias uint64, pt uint8, gcm Gcm) (length uint16, err error) {
 
@@ -25,7 +27,7 @@ func Pack(data []byte, fi uint32, bias uint64, pt uint8, gcm Gcm) (length uint16
 		return 0, errors.New("expcet fi <=0x3FFFFFFF, actual " + strconv.FormatInt(int64(fi), 0xf))
 	} else if pt > 0b11111 {
 		return 0, errors.New("expcet pt <=0x1F, actual " + strconv.FormatInt(int64(pt), 16))
-	} else if len(data) > 65506 { // UDP MTU为65535; 65535-13-16=65506
+	} else if len(data) > constant.MTU { // UDP MTU为65535; 65535-13-16=65506
 		return 0, errors.New("expect length of parameter date not more than 65506, actual :" + strconv.Itoa(len(data)))
 	}
 

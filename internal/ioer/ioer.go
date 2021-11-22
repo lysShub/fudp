@@ -6,12 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lysShub/fudp"
+	"github.com/lysShub/fudp/constant"
 )
 
 // UDP路由(根据raddr)
 
-const packetmtu uint16 = fudp.MTU + 13 + 2 //
+const packetmtu uint16 = constant.MTU + 13 + 2 //
 
 type Ioer struct {
 	laddr *net.UDPAddr

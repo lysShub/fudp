@@ -36,11 +36,10 @@ var temp *x509.Certificate = &x509.Certificate{
 // 参考: https://golang.org/src/crypto/tls/generate_cert.go
 func CreateEccCert(rootCert *x509.Certificate, tmplate ...*x509.Certificate) (cert []byte, key []byte, err error) {
 
-	privatekey, publicKey, err := ecc.GenerateKey()
+	privatekey, _, err := ecc.GenerateKey()
 	if err != nil {
 		return nil, nil, err
 	}
-	fmt.Println(publicKey)
 
 	// 模板
 	var myTemp, myRootTemp *x509.Certificate = temp, temp
@@ -76,7 +75,7 @@ func CreateEccCert(rootCert *x509.Certificate, tmplate ...*x509.Certificate) (ce
 
 // VerifyCertificate 校验证书
 // 	rootCertificatePEM 为空则使用系统自带根证书校验
-// 	返回nil表示校验成功，否则代表存在问题
+// 	返回nil表示校验成功
 func VerifyCertificate(certificatePEM []byte, rootCertificatePEM ...[]byte) error {
 
 	var roots *x509.CertPool = x509.NewCertPool()

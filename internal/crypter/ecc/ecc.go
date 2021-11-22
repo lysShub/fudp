@@ -31,8 +31,7 @@ func GenerateKey() (priKey, pubKey []byte, err error) {
 	} else {
 
 		if priKey, err = x509.MarshalECPrivateKey(key); err != nil {
-			priKey, pubKey = nil, nil
-			return
+			return nil, nil, err
 		}
 		pubKey = elliptic.MarshalCompressed(elliptic.P256(), key.X, key.Y)
 	}
@@ -94,7 +93,9 @@ func Decrypt(prikey []byte, ciphertext []byte) (plaintext []byte, err error) {
 	}
 
 	x, y := elliptic.UnmarshalCompressed(elliptic.P256(), ciphertext[ctLen:l-1])
-	if ok := (elliptic.P256()).IsOnCurve(x, y); !ok {
+	if x == nil || y == nil {
+		return nil, errors.New("invalid ECC public key")
+	} else if ok := (elliptic.P256()).IsOnCurve(x, y); !ok {
 		return nil, errors.New("parse ECC publice key with ELLIPTIC(ANSI X9.62) error")
 	}
 	var key *ecdsa.PrivateKey
