@@ -18,12 +18,14 @@ type Config struct {
 	role uint8 // 角色  0: Server   1: Client
 	acti uint8 // 权限  0b01: 允许下载(receive)  0b10: 允许上传(send) 其他待定
 
+	verifyFunc func(pars *url.URL) bool //请求参数校验函数
+
 	sendPath    string // 发送文件路径, 必须存在, 可以是文件或文件夹
 	receivePath string // 接收文件路径, 必须是文件夹
 
 	cert     []byte   // server端的证书
-	key      []byte   // server端的私钥
-	token    []byte   // PP模式client端一次传输的token, 用于校验证书; 其实质是证书的公钥
+	key      []byte   // server端原始的私钥, 而不是序列化后的
+	token    []byte   // PP模式client端一次传输的token, 用于校验证书; 其实质是公钥
 	selfCert [][]byte // client端自签根证书
 
 	err error // 配置中遇到的错误

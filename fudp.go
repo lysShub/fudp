@@ -4,6 +4,7 @@ package fudp
 
 import (
 	"net"
+	"net/url"
 
 	"github.com/lysShub/fudp/packet"
 )
@@ -25,4 +26,18 @@ type Fudp struct {
 func Run(config Config, conn net.Conn) (f *Fudp, err error) {
 
 	return &Fudp{config, conn, [16]byte{}, nil}, nil
+}
+
+// Verify 请求参数校验, 校验通过返回0, 否则返回对应HTTP Code
+func (f *Fudp) Verify(url *url.URL) (uint16, string) {
+
+	// 校验资源是否存在, 以及请求中的保留参数等
+	if false {
+		return 404, "not found"
+	}
+
+	if !f.verifyFunc(url) {
+		return 403, "forbidden" // forbidden
+	}
+	return 0, ""
 }

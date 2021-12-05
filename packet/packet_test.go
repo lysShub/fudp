@@ -13,7 +13,7 @@ import (
 )
 
 type v struct {
-	gcm packet.Gcm
+	gcm *packet.Gcm
 
 	length uint16
 	fi     uint32
@@ -244,7 +244,7 @@ func test(t *testing.T, v *v) {
 	}
 }
 
-func randStruct(p packet.Gcm) v {
+func randStruct(p *packet.Gcm) v {
 	return v{
 		gcm:    p,
 		length: uint16(randInt(0, 65506)),
@@ -254,7 +254,7 @@ func randStruct(p packet.Gcm) v {
 	}
 }
 
-func Newgcm(key [16]byte, none [12]byte) (packet.Gcm, error) {
+func Newgcm(key [16]byte, none [12]byte) (*packet.Gcm, error) {
 	var gcm packet.Gcm
 	if block, err := aes.NewCipher(key[:]); err != nil {
 		return nil, err
@@ -263,7 +263,7 @@ func Newgcm(key [16]byte, none [12]byte) (packet.Gcm, error) {
 			return nil, err
 		}
 	}
-	return gcm, nil
+	return &gcm, nil
 }
 
 func randInt(min, max int) int {

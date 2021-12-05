@@ -1,26 +1,27 @@
-package ecc_test
+package ecc
 
 import (
 	"bytes"
 	"testing"
-
-	"github.com/lysShub/fudp/internal/crypter/ecc"
 )
 
 func TestCrypt(t *testing.T) {
-	pri, pub, err := ecc.GenerateKey()
+
+	pri, pub, err := GenerateKey()
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Logf("length privateKey: %d  length publicKey: %d", len(pri), len(pub))
 
 	data := []byte("0123456789abcdef0123456789abcdef")
 
-	ct, err := ecc.Encrypt(pub, data)
+	ct, err := Encrypt(pub, data)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Logf("length  plaintext: %d  length ciphertext: %d", len(data), len(ct))
 
-	pt, err := ecc.Decrypt(pri, ct)
+	pt, err := Decrypt(pri, ct)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,11 +31,13 @@ func TestCrypt(t *testing.T) {
 		t.Fatal("解密出错")
 	}
 
-	sign, err := ecc.Sign(pri, data)
+	sign, err := Sign(pri, data)
 	if err != nil {
 		panic(err)
 	}
-	if ok, err := ecc.Verify(pub, sign, data); err != nil {
+	t.Logf("length  signature: %d", len(sign))
+
+	if ok, err := Verify(pub, sign, data); err != nil {
 		t.Fatal(err)
 	} else if !ok {
 		t.Fatal("验签失败")
