@@ -8,6 +8,7 @@ package fudp
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -80,40 +81,36 @@ func (f *Fudp) HandReceive(timeout ...time.Duration) (stateCode uint16, err erro
 						copy(ck, buf[2:lk+2])
 						copy(cu, buf[lk+2:length])
 
-						if len(f.key) == 0 {
-							rcode, rmsg = 500, "fudp server error" // 获取私钥信息失败 服务器错误
-						} else {
-							if key, err := ecc.Decrypt(f.key, ck); err == nil && len(key) == 16 {
-								copy(f.secretKey[:], key)
+						if key, err := ecc.Decrypt(f.key, ck); err == nil && len(key) == 16 {
+							copy(f.secretKey[:], key)
 
-								if len(cu) > 0 {
-									if purl, err := f.gcm.Open(nil, make([]byte, 12), cu, nil); err == nil {
+							if len(cu) > 0 {
+								if purl, err := f.gcm.Open(nil, make([]byte, 12), cu, nil); err == nil {
 
-										if url, err := url.Parse(string(purl)); err == nil {
-											if r, msg := f.Verify(url); r != 0 {
-												rcode, rmsg = r, msg // 服务器拒绝 校验失败
-											}
-										} else {
-											rcode, rmsg = 400, "bad request, unable to parse" // 请求信息错误 参数解密失败
+									if url, err := url.Parse(string(purl)); err == nil {
+										if r, msg := f.Verify(url); r != 0 {
+											rcode, rmsg = r, msg // 服务器拒绝 校验失败
 										}
 									} else {
-										rcode, rmsg = 400, "bad request, unable to decrypt" // 请求信息错误 参数解密失败
+										rcode, rmsg = 400, "bad request, unable to parse" // 请求信息错误 参数解密失败
 									}
+								} else {
+									rcode, rmsg = 400, "bad request, unable to decrypt" // 请求信息错误 参数解密失败
 								}
-
-								if rcode == 0 {
-									if block, err := aes.NewCipher(f.secretKey[:]); err != nil {
-										rcode, rmsg = 500, "fudp server error" // 服务器错误
-									} else {
-										if f.gcm, err = cipher.NewGCM(block); err != nil {
-											rcode, rmsg = 500, "fudp server error" // 服务器错误
-										}
-									}
-									rcode, rmsg = 400, ""
-								}
-							} else {
-								rcode, rmsg = 400, "bad request, unable to parse" // 请求信息错误  对称加密密钥不合法
 							}
+
+							if rcode == 0 {
+								if block, err := aes.NewCipher(f.secretKey[:]); err != nil {
+									rcode, rmsg = 500, "fudp server error" // 服务器错误
+								} else {
+									if f.gcm, err = cipher.NewGCM(block); err != nil {
+										rcode, rmsg = 500, "fudp server error" // 服务器错误
+									}
+								}
+								rcode, rmsg = 400, ""
+							}
+						} else {
+							rcode, rmsg = 400, "bad request, unable to parse" // 请求信息错误  对称加密密钥不合法
 						}
 
 						buf[0], buf[1] = byte(rcode), byte(rcode>>8)
@@ -184,8 +181,9 @@ handsharkStart:
 					return 0, errors.New("mode not match")
 				} else {
 					var pubKey []byte
-					if length != 0 {
-						// 验签证书
+					var publicKey *ecdsa.PublicKey
+					if f.mode == 1 {
+						// CS 验签证书
 						var ok bool = false
 						for i := 0; i < len(f.selfCert) && !ok; i++ {
 							if cert.VerifyCertificate(buf[:length], f.selfCert[i]) == nil {
@@ -204,8 +202,16 @@ handsharkStart:
 						if pubKey, err = cert.GetCertPubkey(buf[:length]); err != nil {
 							goto handsharkStart
 						}
+
+						if publicKey, err = ecc.ParsePubKey(pubKey); err != nil {
+							goto handsharkStart
+						}
 					} else {
+						// PP 直接使用token
 						pubKey = f.token
+						if publicKey, err = ecc.ParsePubKey(pubKey); err != nil {
+							return 0, errors.New("token parse failed")
+						}
 					}
 
 					var secretKey []byte = make([]byte, 16)
@@ -218,7 +224,8 @@ handsharkStart:
 							return 500, err
 						}
 					}
-					if ck, err := ecc.Encrypt(pubKey, f.secretKey[0:]); err != nil { // 公钥加密
+
+					if ck, err := ecc.Encrypt(publicKey, f.secretKey[0:]); err != nil { // 公钥加密
 						return 500, err
 					} else {
 						var cp []byte

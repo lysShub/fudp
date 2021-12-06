@@ -7,15 +7,24 @@ import (
 
 func TestCrypt(t *testing.T) {
 
-	pri, pub, err := GenerateKey()
+	pri, err := GenerateKey()
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("length privateKey: %d  length publicKey: %d", len(pri), len(pub))
+
+	tp, err := MarshalPubKey(&pri.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := MarshalPubKey(&pri.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("length privateKey: %d  length publicKey: %d", len(tp), len(tk))
 
 	data := []byte("0123456789abcdef0123456789abcdef")
 
-	ct, err := Encrypt(pub, data)
+	ct, err := Encrypt(&pri.PublicKey, data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +46,7 @@ func TestCrypt(t *testing.T) {
 	}
 	t.Logf("length  signature: %d", len(sign))
 
-	if ok, err := Verify(pub, sign, data); err != nil {
+	if ok, err := Verify(&pri.PublicKey, sign, data); err != nil {
 		t.Fatal(err)
 	} else if !ok {
 		t.Fatal("验签失败")

@@ -1,14 +1,14 @@
 package fudp
 
 import (
+	"crypto/ecdsa"
 	"encoding/base32"
 	"errors"
-	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
-	"github.com/lysShub/fudp/internal/crypter/cert"
 	certificate "github.com/lysShub/fudp/internal/crypter/cert"
 	"github.com/lysShub/fudp/internal/crypter/ecc"
 )
@@ -23,10 +23,10 @@ type Config struct {
 	sendPath    string // 发送文件路径, 必须存在, 可以是文件或文件夹
 	receivePath string // 接收文件路径, 必须是文件夹
 
-	cert     []byte   // server端的证书
-	key      []byte   // server端原始的私钥, 而不是序列化后的
-	token    []byte   // PP模式client端一次传输的token, 用于校验证书; 其实质是公钥
-	selfCert [][]byte // client端自签根证书
+	cert     []byte            // server端的证书
+	key      *ecdsa.PrivateKey // server端私钥
+	token    []byte            // PP模式client端一次传输的token, 用于校验证书; 其实质是公钥
+	selfCert [][]byte          // client端自签根证书
 
 	err error // 配置中遇到的错误
 }
@@ -133,24 +133,16 @@ func (p *PPRoler) Send(path string) {
 	p.acti = 0b10
 	p.role = 0
 
-	p.cert, p.key, err = certificate.CreateEccCert(nil)
+	p.cert, p.key, err = certificate.GenerateCert(time.Hour*24, func(c *certificate.CaRequest) {})
 	if err != nil {
 		p.err = err
+		return
 	}
 
-	p.token, _, _, err = certificate.GetCertInfo(p.cert)
+	p.token, err = ecc.MarshalPubKey(&p.key.PublicKey)
 	if err != nil {
 		p.err = err
-	}
-
-	//
-	if pub, sign, da, err := cert.GetCertInfo(p.cert); err != nil {
-		panic(errors.New("certificate parse fail: " + err.Error()))
-	} else {
-		fmt.Println("自校验")
-		fmt.Println(ecc.Verify(p.token, sign, da))
-		fmt.Println("pub", pub)
-		fmt.Println("token", p.token)
+		return
 	}
 }
 
@@ -185,14 +177,21 @@ func (c *CSRoler) Client(rootCertificate ...[]byte) iCSClient {
 }
 
 // Server 服务端
+// 	@cert 证书
+// 	@key 私钥
+//  @verifyFunc 对请求参数进行校验
 func (c *CSRoler) Server(cert []byte, key []byte, verifyFunc func(pars *url.URL) uint8) iCSServer {
 	var csserver = CSServer{c.Config}
 	csserver.cert = cert
-	csserver.key = key
-	if !certificate.CertFormatCheck(cert) {
-		c.err = errors.New("cert format error")
+	var err error
+	if csserver.key, err = ecc.ParsePriKey(key); err != nil {
+		c.err = err
+	} else {
+		if !certificate.CertFormatCheck(cert) { // 检查证书格式, 有效期, 公私钥匹配
+			c.err = errors.New("cert format error")
+		}
+		c.role = 0
 	}
-	c.role = 0
 	return &csserver
 }
 

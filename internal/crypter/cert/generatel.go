@@ -23,7 +23,7 @@ import (
 // GenerateCert 生成ECDSAWithSHA256算法的der格式自签证书和pem格式的私钥
 // 	@timeout 证书有效期
 // 	@rootCert 根证书, 如果为空则为自签根证书
-func GenerateCert(timeout time.Duration, fun func(c *CaRequest), rootCert ...*x509.Certificate) (ca []byte, key []byte, err error) {
+func GenerateCert(timeout time.Duration, fun func(c *CaRequest), rootCert ...*x509.Certificate) (cert []byte, prikey *ecdsa.PrivateKey, err error) {
 	var c = new(CaRequest)
 	c.signatureAlgorithm = x509.ECDSAWithSHA256
 	fun(c)
@@ -69,27 +69,15 @@ func GenerateCert(timeout time.Duration, fun func(c *CaRequest), rootCert ...*x5
 		root = rootCert[0]
 	}
 
-	privatekey, _, err := ecc.GenerateKey()
+	privatekey, err := ecc.GenerateKey()
 	if err != nil {
 		return nil, nil, err
 	}
-
-	var pri interface{}
-	if pri, err = x509.ParsePKCS8PrivateKey(privatekey); err != nil {
-		return nil, nil, err
-	}
-	ca, err = x509.CreateCertificate(rand.Reader, template, root, &(pri.(*ecdsa.PrivateKey).PublicKey), pri)
+	cert, err = x509.CreateCertificate(rand.Reader, template, root, privatekey.PublicKey, privatekey)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	var keyBytes = new(bytes.Buffer)
-	if err = pem.Encode(keyBytes, &pem.Block{Type: "EC PRIVATE KEY", Bytes: privatekey}); err != nil {
-		return nil, nil, err
-	} else {
-		key = keyBytes.Bytes()
-	}
-	return
+	return cert, prikey, nil
 }
 
 // SetSubject 生成CSR文件, 用于申请CA证书
@@ -111,17 +99,12 @@ func GenerateCsr(fun func(c *CaRequest)) (csr []byte, key []byte, err error) {
 		URIs:               c.uRIs,
 	}
 
-	privatekey, _, err := ecc.GenerateKey()
+	privatekey, err := ecc.GenerateKey()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	var pri interface{}
-	if pri, err = x509.ParsePKCS8PrivateKey(privatekey); err != nil {
-		return nil, nil, err
-	}
-
-	csrbin, err := x509.CreateCertificateRequest(rand.Reader, &cr, pri.(*ecdsa.PrivateKey))
+	csrbin, err := x509.CreateCertificateRequest(rand.Reader, &cr, privatekey)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -132,8 +115,12 @@ func GenerateCsr(fun func(c *CaRequest)) (csr []byte, key []byte, err error) {
 	}
 	csr = keyBytes.Bytes()
 
+	priBytes, err := x509.MarshalPKCS8PrivateKey(privatekey)
+	if err != nil {
+		return nil, nil, err
+	}
 	keyBytes = new(bytes.Buffer)
-	if err = pem.Encode(keyBytes, &pem.Block{Type: "PRIVATE KEY", Bytes: privatekey}); err != nil {
+	if err = pem.Encode(keyBytes, &pem.Block{Type: "PRIVATE KEY", Bytes: priBytes}); err != nil {
 		return nil, nil, err
 	}
 	key = keyBytes.Bytes()

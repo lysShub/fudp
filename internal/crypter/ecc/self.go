@@ -12,42 +12,57 @@ import (
 	"math/big"
 )
 
-// GenerateKey
-func GenerateKey() (priKey, pubKey []byte, err error) {
-	var key *ecdsa.PrivateKey
-	if key, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader); err != nil {
-		priKey, pubKey = nil, nil
-	} else {
+func GenerateKey() (priKey *ecdsa.PrivateKey, err error) {
+	return ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+}
 
-		if priKey, err = x509.MarshalPKCS8PrivateKey(key); err != nil {
-			return nil, nil, err
-		}
-
-		pubKey = elliptic.MarshalCompressed(elliptic.P256(), key.X, key.Y)
+func MarshalPubKey(pubKey *ecdsa.PublicKey) (publicKey []byte, err error) {
+	if pubKey.X == nil || pubKey.Y == nil {
+		return nil, errors.New("invalid ecc public key")
 	}
-	return
+	if !elliptic.P256().IsOnCurve(pubKey.X, pubKey.Y) {
+		return nil, errors.New("invalid ecc public key")
+	}
+	return elliptic.MarshalCompressed(elliptic.P256(), pubKey.X, pubKey.Y), nil
+}
+
+func ParsePubKey(publicKey []byte) (pubKey *ecdsa.PublicKey, err error) {
+	x, y := elliptic.Unmarshal(elliptic.P256(), publicKey)
+	if x == nil || y == nil {
+		return nil, errors.New("invalid ecc public key")
+	}
+	if !elliptic.P256().IsOnCurve(x, y) {
+		return nil, errors.New("invalid ecc public key")
+	}
+	return &ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}, nil
+}
+
+func MarshalPrikey(priKey *ecdsa.PrivateKey) (privateKey []byte, err error) {
+	return x509.MarshalPKCS8PrivateKey(priKey)
+}
+
+func ParsePriKey(privateKey []byte) (priKey *ecdsa.PrivateKey, err error) {
+
+	if t, err := x509.ParsePKCS8PrivateKey(privateKey); err != nil {
+		return nil, err
+	} else if condition, ok := t.(*ecdsa.PrivateKey); ok {
+		return condition, nil
+	} else {
+		return nil, errors.New("invalid ecc private key")
+	}
 }
 
 // Encrypt 公钥加密
 // 	密文结构为：{加密后密文 公钥 公钥长度(1B,单位字节)}
-func Encrypt(pubkey []byte, plaintext []byte) (ciphertext []byte, err error) {
-
+func Encrypt(pubKey *ecdsa.PublicKey, plaintext []byte) (ciphertext []byte, err error) {
 	var selfKey *ecdsa.PrivateKey
 	if selfKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader); err != nil {
 		return nil, err
 	}
 	selfPub := elliptic.MarshalCompressed(elliptic.P256(), selfKey.PublicKey.X, selfKey.PublicKey.Y)
 
-	x, y := elliptic.UnmarshalCompressed(elliptic.P256(), pubkey)
-	if x == nil || y == nil {
-		return nil, errors.New("invalid public key")
-	} else {
-		if ok := elliptic.P256().IsOnCurve(x, y); !ok {
-			return nil, errors.New("invalid public key")
-		}
-	}
-	var sps ecdsa.PublicKey = ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}
-	sx, sy := sps.Curve.ScalarMult(x, y, selfKey.D.Bytes())
+	var sps ecdsa.PublicKey = ecdsa.PublicKey{Curve: elliptic.P256(), X: pubKey.X, Y: pubKey.Y}
+	sx, sy := sps.Curve.ScalarMult(pubKey.X, pubKey.Y, selfKey.D.Bytes())
 	if sx == nil || sy == nil {
 		return nil, errors.New("encrypt fail")
 	}
@@ -78,13 +93,12 @@ func Encrypt(pubkey []byte, plaintext []byte) (ciphertext []byte, err error) {
 }
 
 // Decrypt 私钥解密
-func Decrypt(prikey []byte, ciphertext []byte) (plaintext []byte, err error) {
+func Decrypt(priKey *ecdsa.PrivateKey, ciphertext []byte) (plaintext []byte, err error) {
 
 	l, pkl := len(ciphertext), int(ciphertext[len(ciphertext)-1])
 	if pkl+1 >= l { // 密文为空时取等号
 		return nil, errors.New("invalid ciphertext, wrong format")
 	}
-
 	ct, pk := ciphertext[0:l-pkl-1], ciphertext[l-pkl-1:l-1]
 
 	sx, sy := elliptic.UnmarshalCompressed(elliptic.P256(), pk)
@@ -94,17 +108,7 @@ func Decrypt(prikey []byte, ciphertext []byte) (plaintext []byte, err error) {
 		return nil, errors.New("invalid ciphertext")
 	}
 
-	var key *ecdsa.PrivateKey
-	if tkey, err := x509.ParsePKCS8PrivateKey(prikey); err != nil {
-		return nil, err
-	} else {
-		var ok bool = false
-		if key, ok = tkey.(*ecdsa.PrivateKey); !ok {
-			return nil, errors.New("invalid private key")
-		}
-	}
-
-	sx, sy = key.Curve.ScalarMult(sx, sy, key.D.Bytes())
+	sx, sy = priKey.Curve.ScalarMult(sx, sy, priKey.D.Bytes())
 	if sx == nil {
 		return nil, errors.New("decrypt fail")
 	}
@@ -132,18 +136,8 @@ func Decrypt(prikey []byte, ciphertext []byte) (plaintext []byte, err error) {
 
 // Sign 私钥加密
 // 	签名的结构为：{x y x的长度(1B)}
-func Sign(prikey []byte, data []byte) (signature []byte, err error) {
-	var key *ecdsa.PrivateKey
-	if tkey, err := x509.ParsePKCS8PrivateKey(prikey); err != nil {
-		return nil, err
-	} else {
-		var ok bool = false
-		if key, ok = tkey.(*ecdsa.PrivateKey); !ok {
-			return nil, errors.New("invalid private key")
-		}
-	}
-
-	r, s, err := ecdsa.Sign(rand.Reader, key, data)
+func Sign(priKey *ecdsa.PrivateKey, data []byte) (signature []byte, err error) {
+	r, s, err := ecdsa.Sign(rand.Reader, priKey, data)
 	if err != nil {
 		return nil, err
 	} else if r == nil || s == nil {
@@ -171,7 +165,7 @@ func Sign(prikey []byte, data []byte) (signature []byte, err error) {
 }
 
 // Verify 公钥验签
-func Verify(pubkey []byte, signature []byte, data []byte) (bool, error) {
+func Verify(pubKey *ecdsa.PublicKey, signature []byte, data []byte) (bool, error) {
 
 	var rint, sint big.Int
 
@@ -186,15 +180,14 @@ func Verify(pubkey []byte, signature []byte, data []byte) (bool, error) {
 		return false, err
 	}
 
-	x, y := elliptic.UnmarshalCompressed(elliptic.P256(), pubkey)
-	if x == nil || y == nil {
-		return false, errors.New("varify fail")
+	if pubKey.X == nil || pubKey.Y == nil {
+		return false, errors.New("invalid ecc public key")
 	} else {
-		if ok := elliptic.P256().IsOnCurve(x, y); !ok {
-			return false, errors.New("varify fail")
+		if ok := elliptic.P256().IsOnCurve(pubKey.X, pubKey.Y); !ok {
+			return false, errors.New("invalid ecc public key")
 		}
 	}
-	var sps ecdsa.PublicKey = ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}
+	var sps ecdsa.PublicKey = ecdsa.PublicKey{Curve: elliptic.P256(), X: pubKey.X, Y: pubKey.Y}
 
 	// 根据公钥，明文，r，s验证签名
 	return ecdsa.Verify(&sps, data, &rint, &sint), nil
