@@ -17,22 +17,34 @@ import (
 	"github.com/lysShub/fudp/utils"
 )
 
+const (
+	PPMode = 1 << iota
+	CSMode
+)
+const (
+	SRole = 1 << iota // server role: 接受握手
+	CRole
+)
+const (
+	DownloadAct = 1 << iota
+	UploadAct
+)
+
 type Config struct {
-	mode uint8 // 模式  0: P-P   1: C-S
-	role uint8 // 角色  0: Server   1: Client
-	acti uint8 // 权限  0b01: 允许下载(receive)  0b10: 允许上传(send) 其他待定
+	mode        uint8  // 模式
+	role        uint8  // 角色
+	acti        uint8  // 权限
+	sendPath    string // 发送文件路径, 支持文件、文件夹
+	receivePath string // 接收文件路径
+
+	cert     []byte            // 证书
+	key      *ecdsa.PrivateKey // 私钥
+	token    []byte            // token, 用于校验证书; 其实质是公钥
+	selfCert [][]byte          // 自签根证书的验签证书
 
 	verifyFunc func(pars *url.URL) bool //请求参数校验函数
 
-	sendPath    string // 发送文件路径, 必须存在, 可以是文件或文件夹
-	receivePath string // 接收文件路径, 必须是文件夹
-
-	cert     []byte            // server端的证书
-	key      *ecdsa.PrivateKey // server端私钥
-	token    []byte            // PP模式client端一次传输的token, 用于校验证书; 其实质是公钥
-	selfCert [][]byte          // client端自签根证书
-
-	err error // 配置中遇到的错误
+	err error // 配置错误
 }
 
 // Configure 创建配置文件, 具有向导功能
@@ -49,13 +61,13 @@ func Configure(conf func(*Config)) (Config, error) {
 }
 
 func (c *Config) PPMode() iPPMode {
-	c.mode = 0
+	c.mode = PPMode
 	var pper = PPRoler{c}
 	return &pper
 }
 
 func (c *Config) CSMode() iCSMode {
-	c.mode = 1
+	c.mode = CSMode
 	var cser = CSRoler{c}
 	return &cser
 }
@@ -68,8 +80,8 @@ func (p *PPRoler) Send(path string) {
 		p.err = err
 	}
 	p.sendPath = utils.FormatPath(path)
-	p.acti = 0b10
-	p.role = 0
+	p.acti = UploadAct
+	p.role = SRole
 
 	p.cert, p.key, err = certificate.GenerateCert(time.Hour*24, func(c *certificate.CaRequest) {})
 	if err != nil {
@@ -92,7 +104,7 @@ func (c *CSClient) Send(path string) {
 	}
 
 	c.sendPath = utils.FormatPath(path)
-	c.acti = 0b10
+	c.acti = UploadAct
 }
 
 // Receive 接收文件(文件夹)
@@ -103,9 +115,8 @@ func (p *PPRoler) Receive(path string, token string) {
 	}
 
 	p.receivePath = utils.FormatPath(path)
-	p.acti = 0b1
-	p.role = 1
-
+	p.acti = DownloadAct
+	p.role = CRole
 	p.token = p.parseToken(token)
 }
 
@@ -116,7 +127,7 @@ func (c *CSClient) Receive(path string) {
 		c.err = err
 	}
 	c.receivePath = utils.FormatPath(path)
-	c.acti = 0b1
+	c.acti = DownloadAct
 }
 
 // Client 客户端
@@ -129,15 +140,15 @@ func (c *CSRoler) Client(rootCertificate ...[]byte) iCSClient {
 			c.err = errors.New("rootCertificate format error, index " + strconv.Itoa(i))
 		}
 	}
-	c.role = 1
+	c.role = CRole
 	return &csclient
 }
 
 // Server 服务端
-// 	@cert 证书
-// 	@key 私钥
-//  @verifyFunc 对请求参数进行校验
-func (c *CSRoler) Server(cert []byte, key []byte, verifyFunc func(pars *url.URL) uint8) iCSServer {
+//	@cert 证书
+//	@key 私钥
+//	@verifyFunc 请求参数校验函数
+func (c *CSRoler) Server(cert []byte, key []byte, verifyFunc func(pars *url.URL) bool) iCSServer {
 	var csserver = CSServer{c.Config}
 	csserver.cert = cert
 	var err error
@@ -149,6 +160,8 @@ func (c *CSRoler) Server(cert []byte, key []byte, verifyFunc func(pars *url.URL)
 		}
 		c.role = 0
 	}
+
+	c.verifyFunc = verifyFunc
 	return &csserver
 }
 
@@ -193,7 +206,7 @@ type iPPMode interface {
 }
 type iCSMode interface {
 	Client(rootCertificate ...[]byte) iCSClient
-	Server(cert []byte, key []byte, verifyFunc func(pars *url.URL) uint8) iCSServer
+	Server(cert []byte, key []byte, verifyFunc func(pars *url.URL) bool) iCSServer
 }
 type iCSClient interface {
 	Send(path string)

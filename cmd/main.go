@@ -12,6 +12,8 @@ import (
 )
 
 func main() {
+	fmt.Println(fudp.PPMode, fudp.CRole)
+
 	log.Log(errors.New("this is a log"))
 }
 

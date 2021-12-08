@@ -21,6 +21,7 @@ type Fudp struct {
 
 	secretKey [16]byte   // 对称加密(AES_GCM_128)密钥
 	gcm       packet.Gcm // 对称加密(AES_GCM_128)
+
 }
 
 // Run 启动
@@ -43,8 +44,7 @@ func (f *Fudp) Verify(url *url.URL) (uint16, string) {
 	return 0, ""
 }
 
-// ShowToken 显示人类可读的Token(不含不可读字符)
-// 	base32编码, 并且将最后的占位符(=)移动至前面, 为了美观
+// ShowToken 显示序列化后的token
 func (f *Fudp) ShowToken() (token string) {
 	if f.mode == 0 && f.role == 0 && len(f.token) > 0 {
 		token = base32.StdEncoding.EncodeToString(f.token)
