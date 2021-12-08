@@ -4,13 +4,17 @@ import (
 	"crypto/ecdsa"
 	"encoding/base32"
 	"errors"
+	"io/fs"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	certificate "github.com/lysShub/fudp/internal/crypter/cert"
 	"github.com/lysShub/fudp/internal/crypter/ecc"
+	"github.com/lysShub/fudp/utils"
 )
 
 type Config struct {
@@ -31,6 +35,7 @@ type Config struct {
 	err error // 配置中遇到的错误
 }
 
+// Configure 创建配置文件, 具有向导功能
 func Configure(conf func(*Config)) (Config, error) {
 	var c = &Config{}
 	conf(c)
@@ -43,79 +48,12 @@ func Configure(conf func(*Config)) (Config, error) {
 	return *c, nil
 }
 
-// ShowToken 显示人类可读的Token(不含不可读字符)
-// 	base32编码, 并且将最后的占位符(=)移动至前面, 为了美观
-func (c *Config) ShowToken() (token string) {
-	if c.mode == 0 && c.role == 0 && len(c.token) > 0 {
-		token = base32.StdEncoding.EncodeToString(c.token)
-
-		l, c := len(token), 0
-		for i := l - 1; ; i-- {
-			if token[i] == '=' {
-				c = c + 1
-			} else {
-				break
-			}
-		}
-
-		if c == 0 {
-			return token
-		} else {
-			sl := (l - c) / (c + 1)
-			var tmpToken string
-			for i := 0; i < c; i++ {
-				tmpToken = tmpToken + token[i*sl:(i+1)*sl] + "="
-			}
-			return tmpToken + token[sl*c:l-c]
-		}
-
-	}
-	return ""
-}
-
-const errToken = "0000000000000000"
-
-func (c *Config) ParseToken(token string) []byte {
-	if len(token) == 0 {
-		return []byte(errToken) // token错误, 会在握手时反馈
-	}
-	lc := strings.Count(token, "=")
-	token = strings.ReplaceAll(token, "=", "")
-	for i := 0; i < lc; i++ {
-		token = token + "="
-	}
-	token = strings.ToUpper(token)
-
-	data, err := base32.StdEncoding.DecodeString(token)
-	if err != nil {
-		return []byte(errToken)
-	} else {
-		return data
-	}
-}
-
-// --------------------------------------------------
-
-// --------------------------------------------------
-
-type PPRoler struct {
-	*Config
-}
-type CSRoler struct {
-	*Config
-}
-type CSClient struct {
-	*Config
-}
-
-// PPMode 点对点模式
 func (c *Config) PPMode() iPPMode {
 	c.mode = 0
 	var pper = PPRoler{c}
 	return &pper
 }
 
-// CSMode 客户端和服务端模式
 func (c *Config) CSMode() iCSMode {
 	c.mode = 1
 	var cser = CSRoler{c}
@@ -129,7 +67,7 @@ func (p *PPRoler) Send(path string) {
 	if err = verifyPath(path, true); err != nil {
 		p.err = err
 	}
-	p.sendPath = formatPath(path)
+	p.sendPath = utils.FormatPath(path)
 	p.acti = 0b10
 	p.role = 0
 
@@ -146,20 +84,39 @@ func (p *PPRoler) Send(path string) {
 	}
 }
 
+// Send 客户端发送文件(文件夹)
+func (c *CSClient) Send(path string) {
+	var err error
+	if err = verifyPath(path, true); err != nil {
+		c.err = err
+	}
+
+	c.sendPath = utils.FormatPath(path)
+	c.acti = 0b10
+}
+
 // Receive 接收文件(文件夹)
-func (p *PPRoler) Receive(path string, token []byte) {
+func (p *PPRoler) Receive(path string, token string) {
 	var err error
 	if err = verifyPath(path, false); err != nil {
 		p.err = err
 	}
 
-	p.receivePath = formatPath(path)
+	p.receivePath = utils.FormatPath(path)
 	p.acti = 0b1
 	p.role = 1
 
-	// check token
+	p.token = p.parseToken(token)
+}
 
-	p.token = token
+// Receiver 客户端接收文件(文件夹)
+func (c *CSClient) Receive(path string) {
+	var err error
+	if err = verifyPath(path, false); err != nil {
+		c.err = err
+	}
+	c.receivePath = utils.FormatPath(path)
+	c.acti = 0b1
 }
 
 // Client 客户端
@@ -195,31 +152,6 @@ func (c *CSRoler) Server(cert []byte, key []byte, verifyFunc func(pars *url.URL)
 	return &csserver
 }
 
-// Send 客户端发送文件(文件夹)
-func (c *CSClient) Send(path string) {
-	var err error
-	if err = verifyPath(path, true); err != nil {
-		c.err = err
-	}
-
-	c.sendPath = formatPath(path)
-	c.acti = 0b10
-}
-
-// Receiver 客户端接收文件(文件夹)
-func (c *CSClient) Receive(path string) {
-	var err error
-	if err = verifyPath(path, false); err != nil {
-		c.err = err
-	}
-	c.receivePath = formatPath(path)
-	c.acti = 0b1
-}
-
-type CSServer struct {
-	*Config
-}
-
 // Send 服务端发送文件(文件夹)
 func (c *CSServer) Send(path string) {
 	c.sendPath = path
@@ -242,14 +174,22 @@ func (c *CSServer) All(spath string, rpath string) {
 // --------------------------------------------------
 
 // --------------------------------------------------
-type iConf interface {
-	PPMode() iPPMode
-	CSMode() iCSMode
-}
 
+type CSServer struct {
+	*Config
+}
+type PPRoler struct {
+	*Config
+}
+type CSRoler struct {
+	*Config
+}
+type CSClient struct {
+	*Config
+}
 type iPPMode interface {
 	Send(path string)
-	Receive(path string, token []byte)
+	Receive(path string, token string)
 }
 type iCSMode interface {
 	Client(rootCertificate ...[]byte) iCSClient
@@ -266,3 +206,61 @@ type iCSServer interface {
 }
 
 // --------------------------------------------------
+
+// --------------------------------------------------
+
+const errToken = "0000000000000000"
+
+func (c *Config) parseToken(token string) []byte {
+	if len(token) == 0 {
+		return []byte(errToken) // token错误, 会在握手时反馈
+	}
+	lc := strings.Count(token, "=")
+	token = strings.ReplaceAll(token, "=", "")
+	for i := 0; i < lc; i++ {
+		token = token + "="
+	}
+	token = strings.ToUpper(token)
+
+	data, err := base32.StdEncoding.DecodeString(token)
+	if err != nil {
+		return []byte(errToken)
+	} else {
+		return data
+	}
+}
+
+func verifyPath(path string, isSend bool) error {
+	if isSend {
+		fi, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			return errors.New("invalid path: not exist")
+		} else {
+			if !fi.IsDir() {
+				if fi.Size() == 0 {
+					return errors.New("invalid path: file empty")
+				}
+			} else {
+				var s int64
+				filepath.Walk(path, func(path string, info fs.FileInfo, err error) error {
+					s = s + info.Size()
+					if s > 0 {
+						return errors.New("null")
+					}
+					return nil
+				})
+				if s == 0 {
+					return errors.New("invalid path: path empty")
+				}
+			}
+		}
+	} else {
+		fi, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			return os.MkdirAll(path, 0666)
+		} else if !fi.IsDir() {
+			return errors.New("invalid path: is file path, expcet floder path")
+		}
+	}
+	return nil
+}

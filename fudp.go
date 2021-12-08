@@ -3,6 +3,7 @@ package fudp
 // 可靠文件(夹)传输协议
 
 import (
+	"encoding/base32"
 	"net"
 	"net/url"
 
@@ -36,8 +37,38 @@ func (f *Fudp) Verify(url *url.URL) (uint16, string) {
 		return 404, "not found"
 	}
 
-	if !f.verifyFunc(url) {
+	if f.verifyFunc != nil && !f.verifyFunc(url) {
 		return 403, "forbidden" // forbidden
 	}
 	return 0, ""
+}
+
+// ShowToken 显示人类可读的Token(不含不可读字符)
+// 	base32编码, 并且将最后的占位符(=)移动至前面, 为了美观
+func (f *Fudp) ShowToken() (token string) {
+	if f.mode == 0 && f.role == 0 && len(f.token) > 0 {
+		token = base32.StdEncoding.EncodeToString(f.token)
+
+		l, c := len(token), 0
+		for i := l - 1; ; i-- {
+			if token[i] == '=' {
+				c = c + 1
+			} else {
+				break
+			}
+		}
+
+		if c == 0 {
+			return token
+		} else {
+			sl := (l - c) / (c + 1)
+			var tmpToken string
+			for i := 0; i < c; i++ {
+				tmpToken = tmpToken + token[i*sl:(i+1)*sl] + "="
+			}
+			return tmpToken + token[sl*c:l-c]
+		}
+
+	}
+	return ""
 }
