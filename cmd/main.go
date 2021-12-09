@@ -49,7 +49,7 @@ func main1() {
 		token = f.ShowToken()
 		fmt.Println(token)
 
-		if _, err = f.HandReceive(); err != nil {
+		if _, err = f.HandPong(); err != nil {
 			panic(err)
 		}
 
@@ -79,7 +79,7 @@ func main1() {
 			panic(err)
 		}
 
-		if _, err = f.HandSend(""); err != nil {
+		if _, err = f.HandPing(""); err != nil {
 			panic(err)
 		}
 	}

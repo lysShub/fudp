@@ -42,49 +42,49 @@ func Redirect(log, warn, err *os.File) error {
 // Log 记录日志信息
 // 	@msg: 日志信息
 //  当msg不为nil时返回true
-func Log(msg error) bool {
+func Log(msg error) error {
 
 	if msg == nil {
-		return false
+		return nil
 	} else {
 		_, fp, ln, _ := runtime.Caller(1)
 		fmt.Fprintln(LogOut, time.Now().Format(time.RFC3339), instance+"Logging    "+fp+":"+strconv.Itoa(ln)+"    "+msg.Error())
 
 		// fmt.Fprintln(LogOut, time.Now().Format(time.RFC3339), instance+"Logging    "+msg.Error()) // 打包时使用, 此时日志不包含路径信息
 
-		return true
+		return msg
 	}
 }
 
 // Warn 记录警告信息
 // 	@msg: 警告信息
 // 当war不为nil时返回true
-func Warn(war error) bool {
+func Warn(war error) error {
 
 	if war == nil {
-		return false
+		return nil
 	} else {
 		_, fp, ln, _ := runtime.Caller(1)
 		fmt.Fprintln(WranOut, time.Now().Format(time.RFC3339), instance+"Warning    "+fp+":"+strconv.Itoa(ln)+"    "+war.Error())
 
 		// fmt.Fprintln(WranOut, time.Now().Format(time.RFC3339), instance+"Warning    "+msg.Error()) // 打包时使用, 此时日志不包含路径信息
 
-		return true
+		return war
 	}
 }
 
 // Error 记录错误信息
 // 	@err: 错误
 //  当msg不为nil时返回true
-func Error(err error) bool {
+func Error(err error) error {
 	if err == nil {
-		return false
+		return nil
 	} else {
 		_, fp, ln, _ := runtime.Caller(1)
 		fmt.Fprintln(ErrorOut, time.Now().Format(time.RFC3339), instance+"Error    "+fp+":"+strconv.Itoa(ln)+"    "+err.Error())
 
 		// fmt.Fprintln(ErrorOut, time.Now().Format(time.RFC3339), instance+"Error    "+msg.Error()) // 打包时使用, 此时日志不包含路径信息
 
-		return true
+		return err
 	}
 }

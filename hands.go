@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -19,15 +20,139 @@ import (
 	"github.com/lysShub/fudp/constant"
 	"github.com/lysShub/fudp/internal/crypter/cert"
 	"github.com/lysShub/fudp/internal/crypter/ecc"
+	"github.com/lysShub/fudp/log"
 	"github.com/lysShub/fudp/packet"
 )
 
 const maxCap = constant.MTU + 13 // read buffer max capacity
 
+// HandPing 主动握手
+func (f *Fudp) HandPing(purl string) (stateCode uint16, err error) {
+
+	if _, err := url.Parse(purl); log.Error(err) != nil {
+		return 0, errors.New("bad url, unable to parse")
+	}
+	defer f.conn.SetReadDeadline(time.Time{})
+
+	var first bool = true
+handsharkStart:
+	if !first {
+		time.Sleep(constant.HandshakeTimeout >> 2)
+	} else {
+		first = false
+	}
+
+	var start time.Time = time.Now()
+	var buf []byte = make([]byte, maxCap)
+	buf[0] = f.acti
+
+	if length, err := packet.Pack(buf[0:1:maxCap], 0, 0, 0, nil); log.Error(err) != nil {
+		return 0, err
+	} else {
+		if _, err = f.conn.Write(buf[:length]); log.Error(err) != nil {
+			return 0, ErrUnknown
+		}
+	}
+	if err = f.conn.SetReadDeadline(time.Now().Add(constant.HandshakeTimeout - time.Since(start))); log.Error(err) != nil {
+		return 0, ErrUnknown
+	}
+	if n, err := f.conn.Read(buf); log.Error(err) != nil {
+		if strings.Contains(err.Error(), "timeout") {
+			return http.StatusRequestTimeout, errors.New("request timeout")
+		} else {
+			return 0, ErrUnknown
+		}
+	} else {
+
+		if length, fi, bias, pt, err := packet.Parse(buf[:n], nil); log.Error(err) != nil || fi != 1 || bias != 0 || pt != 0 {
+			goto handsharkStart
+		} else {
+
+			var publicKey *ecdsa.PublicKey
+			if f.mode == CSMode {
+				// CS 验签证书
+				if err = cert.VerifyCertificate(buf[:length], f.cert); log.Error(err) != nil {
+					return 495, errors.New("certificate verify failed")
+				}
+				if publicKey, err = cert.GetCertPubkey(buf[:length]); log.Error(err) != nil {
+					if err == cert.ErrInvalidCertificateType {
+						return 495, cert.ErrInvalidCertificateType
+					}
+					return 0, errors.New("get public key from certificate failed")
+				}
+			} else if f.mode == PPMode {
+				if length != 0 {
+					return http.StatusMethodNotAllowed, errors.New("work mode not match")
+				}
+				// PP 直接使用token 作为公钥
+				if publicKey, err = ecc.ParsePubKey(f.token); log.Error(err) != nil {
+					return 0, errors.New("invalid token")
+				}
+			} else {
+				return 0, errors.New("unknown work mode")
+			}
+
+			var secretKey []byte = make([]byte, 16)
+			rand.Read(secretKey)
+			copy(f.secretKey[:], secretKey)
+			if block, err := aes.NewCipher(secretKey); log.Error(err) != nil {
+				return 0, ErrUnknown
+			} else {
+				if f.gcm, err = cipher.NewGCM(block); log.Error(err) != nil {
+					return 0, ErrUnknown
+				}
+			}
+
+			if ck, err := ecc.Encrypt(publicKey, f.secretKey[0:]); err != nil { // 公钥加密
+				return 0, err
+			} else {
+				var cp []byte
+				if len(purl) != 0 {
+					cp = f.gcm.Seal(nil, make([]byte, 12), []byte(purl), nil)
+				}
+				n = copy(buf[0:], ck)
+				n = copy(buf[n:], cp)
+				if length, err := packet.Pack(buf[0:n+len(ck):maxCap], 1, 0, 0, nil); log.Error(err) != nil {
+					return 0, err
+				} else {
+					if _, err = f.conn.Write(buf[:length]); err != nil {
+						return 0, ErrUnknown
+					} else {
+						// 进入下一步
+					}
+				}
+			}
+		}
+
+	}
+
+	if err = f.conn.SetReadDeadline(time.Now().Add(constant.HandshakeTimeout - time.Since(start))); log.Error(err) != nil {
+		return 0, ErrUnknown
+	}
+	if n, err := f.conn.Read(buf); log.Error(err) != nil {
+		if strings.Contains(err.Error(), "timeout") {
+			return http.StatusRequestTimeout, errors.New("request timeout")
+		} else {
+			return 0, ErrUnknown
+		}
+	} else {
+		if length, fi, bias, pt, err := packet.Parse(buf[:n], nil); log.Error(err) != nil {
+			return 0, err
+		} else {
+			if length < 2 || fi != 0 || bias != 0 || pt != 3 {
+				return 500, errors.New("invalid response")
+			}
+			fmt.Println(string(buf[2:length]))
+
+			return uint16(buf[1])<<8 | uint16(buf[0]), nil
+		}
+	}
+}
+
 // 接受握手
 //  @timeout: 等待握手超时时间, 默认4秒
 // 	@err: 返回错误, nil表示握手成功
-func (f *Fudp) HandReceive(timeout ...time.Duration) (stateCode uint16, err error) {
+func (f *Fudp) HandPong(timeout ...time.Duration) (stateCode uint16, err error) {
 
 	defer f.conn.SetReadDeadline(time.Time{})
 
@@ -146,124 +271,4 @@ func (f *Fudp) HandReceive(timeout ...time.Duration) (stateCode uint16, err erro
 	return 500, errors.New("") //
 }
 
-func (f *Fudp) HandSend(purl string) (stateCode uint16, err error) {
-	act := f.acti & 0b11
-	if act == 0 || act == 3 {
-		return 0, errors.New("auth error")
-	}
-	if _, err := url.Parse(purl); err != nil {
-		return 0, errors.New("bad url, unable to parse")
-	}
-	defer f.conn.SetReadDeadline(time.Time{})
-
-handsharkStart:
-	var start time.Time = time.Now()
-	var buf []byte = make([]byte, maxCap)
-	buf[0] = act
-	if length, err := packet.Pack(buf[0:1:maxCap], 0, 0, 0, nil); err != nil {
-		return 0, err
-	} else {
-		if _, err = f.conn.Write(buf[:length]); err != nil {
-			return 0, err
-		}
-	}
-	for {
-		if err = f.conn.SetReadDeadline(time.Now().Add(constant.HandshakeTimeout - time.Since(start))); err != nil {
-			return 0, err
-		}
-		if n, err := f.conn.Read(buf); err == nil {
-
-			if length, fi, bias, pt, err := packet.Parse(buf[:n], nil); err != nil || fi != 1 || bias != 0 || pt != 0 {
-				goto handsharkStart // S端回复的数据不可能解包失败, 仅有可能发生了bit错误或遇到攻击
-			} else {
-				if f.mode == 1 && length == 0 {
-					// 模式不匹配 C:CS  S:PP
-					return 0, errors.New("mode not match")
-				} else {
-					var pubKey []byte
-					var publicKey *ecdsa.PublicKey
-					if f.mode == 1 {
-						// CS 验签证书
-						var ok bool = false
-						for i := 0; i < len(f.selfCert) && !ok; i++ {
-							if cert.VerifyCertificate(buf[:length], f.selfCert[i]) == nil {
-								ok = true
-							}
-						}
-						if !ok {
-							if cert.VerifyCertificate(buf[:length]) == nil {
-								ok = true
-							}
-						}
-
-						if !ok {
-							return 888, errors.New("certificate verify failed")
-						}
-						if pubKey, err = cert.GetCertPubkey(buf[:length]); err != nil {
-							goto handsharkStart
-						}
-
-						if publicKey, err = ecc.ParsePubKey(pubKey); err != nil {
-							goto handsharkStart
-						}
-					} else {
-						// PP 直接使用token
-						pubKey = f.token
-						if publicKey, err = ecc.ParsePubKey(pubKey); err != nil {
-							return 0, errors.New("token parse failed")
-						}
-					}
-
-					var secretKey []byte = make([]byte, 16)
-					rand.Read(secretKey)
-					copy(f.secretKey[:], secretKey)
-					if block, err := aes.NewCipher(secretKey); err != nil {
-						return 500, err
-					} else {
-						if f.gcm, err = cipher.NewGCM(block); err != nil {
-							return 500, err
-						}
-					}
-
-					if ck, err := ecc.Encrypt(publicKey, f.secretKey[0:]); err != nil { // 公钥加密
-						return 500, err
-					} else {
-						var cp []byte
-						if len(purl) != 0 {
-							cp = f.gcm.Seal(nil, make([]byte, 12), []byte(purl), nil)
-						}
-						n = copy(buf[0:], ck)
-						n = copy(buf[n:], cp)
-						if length, err := packet.Pack(buf[0:n+len(ck):maxCap], 1, 0, 0, nil); err != nil {
-
-							if _, err = f.conn.Write(buf[:length]); err != nil {
-								return 500, err
-							} else {
-								break
-							}
-						}
-					}
-				}
-			}
-
-		} else {
-			return 500, err
-		}
-	}
-
-	for {
-		if err = f.conn.SetReadDeadline(time.Now().Add(constant.HandshakeTimeout - time.Since(start))); err != nil {
-			return 500, err
-		}
-		if n, err := f.conn.Read(buf); err == nil {
-
-			if length, fi, bias, pt, err := packet.Parse(buf[:n], nil); err != nil {
-				continue
-			} else {
-				fmt.Println(length, fi, bias, pt)
-				return 500, errors.New("")
-			}
-
-		}
-	}
-}
+var ErrUnknown error = errors.New("unknown error")
