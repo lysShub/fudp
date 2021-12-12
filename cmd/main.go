@@ -42,16 +42,14 @@ func main1() {
 			panic(err)
 		}
 
-		f, err := fudp.Run(c, conn)
+		err = fudp.Run(c, "conn", "aaa")
 		if err != nil {
 			panic(err)
 		}
-		token = f.ShowToken()
-		fmt.Println(token)
 
-		if _, err = f.HandPong(); err != nil {
-			panic(err)
-		}
+		// if _, err = f.HandPong(); err != nil {
+		// 	panic(err)
+		// }
 
 	} else {
 		fmt.Println("接收")
@@ -74,14 +72,11 @@ func main1() {
 			panic(err)
 		}
 
-		f, err := fudp.Run(c, conn)
+		err = fudp.Run(c, "conn", "token")
 		if err != nil {
 			panic(err)
 		}
 
-		if _, err = f.HandPing(""); err != nil {
-			panic(err)
-		}
 	}
 
 	return

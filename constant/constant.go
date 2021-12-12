@@ -13,15 +13,9 @@ import (
 // 协议包头大小为[3,13]字节
 const MTU = 5000
 
-// 默认等待握手开始超时时间
-const WaitHandShakeTimeout = time.Second * 4
-
 // 握手开始后, 整个握手过程的超时时间
 // 理论耗时：C端1.5RTT, S端1RTT
 const HandshakeTimeout = time.Millisecond * 400
-
-// S端参数, Client允许的最大重试握手次数
-const HandshakeRetry = 3
 
 // 证书模板
 var CertTemplate = x509.Certificate{

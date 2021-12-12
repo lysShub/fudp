@@ -38,7 +38,7 @@ func TestConfig(t *testing.T) {
 			},
 		},
 		{
-			fun: func(c *Config) { c.CSMode().Client([]byte("root certificate")).Receive("./") },
+			fun: func(c *Config) { c.CSMode().Client([]byte("root certificate")).Receive("3.3.3.3:50", "./") },
 			exp: Config{
 				mode:        CSMode,
 				role:        CRole,
