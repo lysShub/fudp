@@ -30,3 +30,7 @@ func Run(config Config, laddr, raddr string) (err error) {
 
 	return nil
 }
+
+func Post(url string, path string) {}
+
+func Put(url string, path string) {}

@@ -17,6 +17,9 @@ const MTU = 5000
 // 理论耗时：C端1.5RTT, S端1RTT
 const HandshakeTimeout = time.Millisecond * 400
 
+// RTT 数据包往返时间, 及PING的时间
+const RTT = time.Millisecond * 250
+
 // 证书模板
 var CertTemplate = x509.Certificate{
 	SerialNumber: big.NewInt(int64(0)), // CA颁发证书对应的唯一序列号，自签填个随机数即可
