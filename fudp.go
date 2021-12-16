@@ -8,6 +8,16 @@ import (
 	"github.com/lysShub/fudp/packet"
 )
 
+type A interface {
+	// CS模式
+	Server()
+	Client()
+
+	// PP模式
+	Send()
+	Receive()
+}
+
 type Fudp struct {
 	// 表示一个Fudp通信
 
@@ -26,11 +36,29 @@ type App struct {
 }
 
 // Run 启动
+//  通过UDP协议传输文件
 func Run(config Config, laddr, raddr string) (err error) {
 
 	return nil
 }
 
-func Post(url string, path string) {}
+func RunWithConn(config Config, conn net.Conn) (err error) {
 
-func Put(url string, path string) {}
+	return nil
+}
+
+/*
+	通过默认参数启动的简化函数
+*/
+
+// Post 从服务器下载文件
+func Pull(url string, path string) (err error) { return }
+
+// Push 上传文件到服务器
+func Push(url string, path string) (err error) { return }
+
+// Send 点对点模式发送文件
+func Send(path string) (err error) { return }
+
+// Receive 点对点模式接收文件
+func Receive(path string) (err error) { return }

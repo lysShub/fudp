@@ -9,40 +9,47 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
-	certificate "github.com/lysShub/fudp/internal/crypter/cert"
+	"github.com/lysShub/fudp/internal/crypter/cert"
 	"github.com/lysShub/fudp/internal/crypter/ecc"
 	"github.com/lysShub/fudp/utils"
 )
 
+type Mode uint8
+
 const (
-	PPMode = 1 << iota
+	PPMode Mode = 1 << iota
 	CSMode
 )
+
+type Role uint8
+
 const (
-	SRole = 1 << iota // server role: 接受握手
+	SRole Role = 1 << iota // server role: 接受握手
 	CRole
 )
+
+type Act uint8
+
 const (
-	DownloadAct = 1 << iota
+	DownloadAct Act = 1 << iota
 	UploadAct
 )
 
 type Config struct {
-	mode        uint8  // 模式
-	role        uint8  // 角色
-	acti        uint8  // 权限
+	mode        Mode   // 模式
+	role        Role   // 角色
+	acti        Act    // 权限
 	sendPath    string // 发送文件路径, 支持文件、文件夹
 	receivePath string // 接收文件路径
 
 	cert     []byte            // 证书
 	key      *ecdsa.PrivateKey // 私钥
-	token    []byte            // token, 用于校验证书; 其实质是公钥
+	token    []byte            // token, 用于校验证书; 等同于CS模式中证书的公钥
 	selfCert [][]byte          // 自签根证书的验签证书
 
-	url        string                    // C端url: fudp://host:port?token=xxx&systen=widows
+	url        string                    // C端url: fudp://host:port/download?token=xxx&systen=widows
 	verifyFunc func(pars *url.URL) error // 请求url参数校验函数,
 
 	err error // 配置错误
@@ -84,7 +91,7 @@ func (p *PPRoler) Send(path string) {
 	p.acti = UploadAct
 	p.role = SRole
 
-	p.cert, p.key, err = certificate.GenerateCert(time.Hour*24, func(c *certificate.CaRequest) {})
+	p.cert, p.key, err = cert.GenerateCert(time.Hour*24, func(c *cert.CaRequest) {})
 	if err != nil {
 		p.err = err
 		return
@@ -100,19 +107,31 @@ func (p *PPRoler) Send(path string) {
 // Receive 接收文件(文件夹)
 // @url: 请求地址、参数
 // @path: 接收文件本地存放路径
-// @token: PP模式通信token
-func (p *PPRoler) Receive(url string, path string, token string) {
+func (p *PPRoler) Receive(url string, path string) {
 	p.url = url
 
 	var err error
 	if err = verifyPath(path, false); err != nil {
 		p.err = err
+		return
 	}
 
 	p.receivePath = utils.FormatPath(path)
 	p.acti = DownloadAct
 	p.role = CRole
-	p.token = p.parseToken(token)
+
+	p.key, err = ecc.GenerateKey()
+	if err != nil {
+		p.err = err
+		return
+	}
+
+	pk, err := ecc.MarshalPubKey(&p.key.PublicKey)
+	if err != nil {
+		p.err = err
+		return
+	}
+	p.token = pk
 }
 
 // Client 客户端
@@ -121,7 +140,7 @@ func (c *CSRoler) Client(rootCertificate ...[]byte) iCSClient {
 	var csclient = CSClient{c.Config}
 	csclient.selfCert = rootCertificate
 	for i, v := range rootCertificate {
-		if !certificate.CertFormatCheck(v) {
+		if !cert.CertFormatCheck(v) {
 			c.err = errors.New("rootCertificate format error, index " + strconv.Itoa(i))
 		}
 	}
@@ -140,13 +159,10 @@ func (c *CSRoler) Server(cert []byte, key []byte, verifyFunc func(pars *url.URL)
 	if csserver.key, err = ecc.ParsePriKey(key); err != nil {
 		c.err = err
 	} else {
-		if !certificate.CertFormatCheck(cert) { // 检查证书格式, 有效期, 公私钥匹配
-			c.err = errors.New("cert format error")
-		}
 		c.role = 0
 	}
 
-	// 重新verifyFunc, 验证保留参数
+	// 重写verifyFunc, 验证保留参数
 	c.verifyFunc = verifyFunc
 	return &csserver
 }
@@ -242,7 +258,7 @@ type CSClient struct {
 }
 type iPPMode interface {
 	Send(path string)
-	Receive(url string, path string, token string)
+	Receive(url string, path string)
 }
 type iCSMode interface {
 	Client(rootCertificate ...[]byte) iCSClient
@@ -262,26 +278,25 @@ type iCSServer interface {
 
 // --------------------------------------------------
 
-const errToken = "0000000000000000"
+// 未被使用
+// func (c *Config) parseToken(token string) []byte {
+// 	if len(token) == 0 {
+// 		return []byte(errToken) // token错误, 会在握手时反馈
+// 	}
+// 	lc := strings.Count(token, "=")
+// 	token = strings.ReplaceAll(token, "=", "")
+// 	for i := 0; i < lc; i++ {
+// 		token = token + "="
+// 	}
+// 	token = strings.ToUpper(token)
 
-func (c *Config) parseToken(token string) []byte {
-	if len(token) == 0 {
-		return []byte(errToken) // token错误, 会在握手时反馈
-	}
-	lc := strings.Count(token, "=")
-	token = strings.ReplaceAll(token, "=", "")
-	for i := 0; i < lc; i++ {
-		token = token + "="
-	}
-	token = strings.ToUpper(token)
-
-	data, err := base32.StdEncoding.DecodeString(token)
-	if err != nil {
-		return []byte(errToken)
-	} else {
-		return data
-	}
-}
+// 	data, err := base32.StdEncoding.DecodeString(token)
+// 	if err != nil {
+// 		return []byte(errToken)
+// 	} else {
+// 		return data
+// 	}
+// }
 
 func verifyPath(path string, isSend bool) error {
 	if isSend {

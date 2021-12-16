@@ -1,5 +1,7 @@
 package fudp
 
+// fudp 握手
+
 import (
 	"crypto/aes"
 	"crypto/cipher"
@@ -20,8 +22,6 @@ import (
 )
 
 const maxCap = constant.MTU + 13 // read buffer max capacity
-
-// 握手时数据包不可靠, 发生错误后会会导致握手握手失败：C端直接返回, S端则重置、S端的握手往返只有超时和握手成功两种情况
 
 var errHandshake error = errors.New("handshake failed")
 
@@ -268,6 +268,5 @@ func (f *Fudp) HandPong(waitTimeout ...time.Duration) (err error) {
 				continue
 			}
 		}
-
 	}
 }
