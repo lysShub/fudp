@@ -3,6 +3,7 @@ package fudp
 // fudp 握手
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdsa"
@@ -29,9 +30,21 @@ var errHandshake error = errors.New("handshake failed")
 // 	@stateCode: 状态码, 基本符合HTTPCode, 为0表示本地错误
 // 	@err: 错误信息或S端reply msg
 // 握手时没有可靠性保证, 任何数据错误将会导致握手失败、函数退出
-func (f *Fudp) HandPing() (stateCode uint16, err error) {
-
+func (f *fudp) HandPing(ctx context.Context) (stateCode uint16, err error) {
 	defer f.conn.SetReadDeadline(time.Time{})
+	if ctx != nil {
+		var endCh = make(chan struct{})
+		defer func() { endCh <- struct{}{} }()
+		go func() {
+			select {
+			case <-ctx.Done():
+			case <-endCh:
+			}
+			f.conn.SetReadDeadline(time.Now())
+		}()
+
+	}
+
 	var buf []byte = make([]byte, maxCap)
 	var n int
 
@@ -151,14 +164,28 @@ func (f *Fudp) HandPing() (stateCode uint16, err error) {
 //  @waitTimeout: 等待握手开始超时时间, 默认4秒
 // 	@err: 返回错误, nil表示握手成功
 // 如果在握手中遇到错误将会重新开始, 函数只有三种情况会退出：握手成功、等待超时、致命错误
-func (f *Fudp) HandPong(waitTimeout ...time.Duration) (err error) {
+func (f *fudp) HandPong(ctx context.Context) (err error) {
 	defer f.conn.SetReadDeadline(time.Time{})
 	var buf []byte = make([]byte, maxCap)
 	var n int
+
 	var run, start time.Time = time.Now(), time.Time{} // 开始时间 握手开始时间
-	var wait time.Duration = time.Second * 4
-	if len(waitTimeout) != 0 {
-		wait = waitTimeout[0]
+	var wait time.Duration = 1<<63 - 1                 // 等待握手开始超时时间
+	if ctx != nil {
+		if tout, ok := ctx.Deadline(); ok {
+			wait = time.Until(tout)
+		} else {
+			var endCh = make(chan struct{})
+			defer func() { endCh <- struct{}{} }()
+			go func() {
+				select {
+				case <-ctx.Done():
+				case <-endCh:
+				}
+				wait = time.Since(start)
+				f.conn.SetReadDeadline(time.Now())
+			}()
+		}
 	}
 
 	for {
@@ -232,9 +259,9 @@ func (f *Fudp) HandPong(waitTimeout ...time.Duration) (err error) {
 						if len(cp) > 0 {
 							if urlBytes, err := tmpGcm.Open(nil, make([]byte, 12), cp, nil); err == nil {
 								if url, err = url.Parse(string(urlBytes)); err == nil {
-									if err := f.verifyFunc(url); err != nil {
-										rcode, rmsg = 401, "url auth failed" // 服务器拒绝 校验失败
-									}
+									// if err := f.handleFunc(url); err != nil {
+									// 	rcode, rmsg = 401, "url auth failed" // 服务器拒绝 校验失败
+									// }
 								} else {
 									rcode, rmsg = 400, "url parse failed" // 请求信息错误 参数解密失败
 								}

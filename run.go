@@ -2,7 +2,7 @@ package fudp
 
 import "errors"
 
-func (f *Fudp) run() (err error) {
+func (f *fudp) run() (err error) {
 
 	if f.mode == PPMode {
 		if f.role == CRole {
@@ -27,16 +27,16 @@ func (f *Fudp) run() (err error) {
 	return
 }
 
-func (f *Fudp) send() (err error) {
+func (f *fudp) send() (err error) {
 	return
 }
 
-func (f *Fudp) reveive() (err error) { return }
+func (f *fudp) reveive() (err error) { return }
 
-func (f *Fudp) client() (err error) {
+func (f *fudp) client() (err error) {
 	return
 }
 
-func (f *Fudp) server() (err error) {
+func (f *fudp) server() (err error) {
 	return
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/lysShub/fudp/internal/crypter/cert"
@@ -16,31 +17,31 @@ import (
 	"github.com/lysShub/fudp/utils"
 )
 
-type Mode uint8
+type mode uint8
 
 const (
-	PPMode Mode = 1 << iota
+	PPMode mode = 1 << iota
 	CSMode
 )
 
-type Role uint8
+type role uint8
 
 const (
-	SRole Role = 1 << iota // server role: 接受握手
+	SRole role = 1 << iota // server role: 接受握手
 	CRole
 )
 
-type Act uint8
+type act uint8
 
 const (
-	DownloadAct Act = 1 << iota
+	DownloadAct act = 1 << iota
 	UploadAct
 )
 
 type Config struct {
-	mode        Mode   // 模式
-	role        Role   // 角色
-	acti        Act    // 权限
+	mode        mode   // 模式
+	role        role   // 角色
+	acti        act    // 权限
 	sendPath    string // 发送文件路径, 支持文件、文件夹
 	receivePath string // 接收文件路径
 
@@ -49,10 +50,9 @@ type Config struct {
 	token    []byte            // token, 用于校验证书; 等同于CS模式中证书的公钥
 	selfCert [][]byte          // 自签根证书的验签证书
 
-	url        string                    // C端url: fudp://host:port/download?token=xxx&systen=widows
-	verifyFunc func(pars *url.URL) error // 请求url参数校验函数,
-
-	err error // 配置错误
+	url        string                                       // C端url: fudp://host:port/download?token=xxx&systen=windows
+	handleFunc func(pars *url.URL) (path string, err error) // 处理请求, 返回本地路径
+	err        error                                        // 配置错误
 }
 
 // Configure 创建配置文件, 具有向导功能
@@ -136,7 +136,7 @@ func (p *PPRoler) Receive(url string, path string) {
 
 // Client 客户端
 // 	@rootCertificate: 验签使用的根证书, 不填写将使用系统CA根证书
-func (c *CSRoler) Client(rootCertificate ...[]byte) iCSClient {
+func (c *CSRoler) Client(rootCertificate ...[]byte) {
 	var csclient = CSClient{c.Config}
 	csclient.selfCert = rootCertificate
 	for i, v := range rootCertificate {
@@ -145,14 +145,13 @@ func (c *CSRoler) Client(rootCertificate ...[]byte) iCSClient {
 		}
 	}
 	c.role = CRole
-	return &csclient
 }
 
 // Server 服务端
 //	@cert 证书
 //	@key 私钥
 //	@verifyFunc url参数校验函数, 可以作为请求的Auth, nil表示校验成功, 否则回复401, 且err作为回复信息(明文)
-func (c *CSRoler) Server(cert []byte, key []byte, verifyFunc func(pars *url.URL) error) iCSServer {
+func (c *CSRoler) Server(cert []byte, key []byte, handleFunc func(pars *url.URL) (path string, err error)) {
 	var csserver = CSServer{c.Config}
 	csserver.cert = cert
 	var err error
@@ -162,53 +161,8 @@ func (c *CSRoler) Server(cert []byte, key []byte, verifyFunc func(pars *url.URL)
 		c.role = 0
 	}
 
-	// 重写verifyFunc, 验证保留参数
-	c.verifyFunc = verifyFunc
-	return &csserver
-}
-
-// Send 发送文件(文件夹)
-// 	@url: 请求地址、参数
-// 	@path: 发送文件本地磁盘路径
-func (c *CSClient) Send(url string, path string) {
-	var err error
-	if err = verifyPath(path, true); err != nil {
-		c.err = err
-	}
-
-	c.sendPath = utils.FormatPath(path)
-	c.acti = UploadAct
-}
-
-// Receiver 接收文件(文件夹)
-// 	@url: 请求地址、参数
-// 	@path: 接收文件本地存放路径
-func (c *CSClient) Receive(url string, path string) {
-	var err error
-	if err = verifyPath(path, false); err != nil {
-		c.err = err
-	}
-	c.receivePath = utils.FormatPath(path)
-	c.acti = DownloadAct
-}
-
-// Send 服务端发送文件(文件夹)
-func (c *CSServer) Send(path string) {
-	c.sendPath = path
-	c.acti = 0b10
-}
-
-// Receive 服务端接收文件(文件夹)
-func (c *CSServer) Receive(path string) {
-	c.receivePath = path
-	c.acti = 0b1
-}
-
-// All 服务端发送/接收文件(文件夹)
-func (c *CSServer) All(spath string, rpath string) {
-	c.sendPath = spath
-	c.receivePath = rpath
-	c.acti = 0b11
+	// 处理验证保留参数
+	c.handleFunc = handleFunc
 }
 
 // ShowToken 显示序列化后的token
@@ -261,17 +215,13 @@ type iPPMode interface {
 	Receive(url string, path string)
 }
 type iCSMode interface {
-	Client(rootCertificate ...[]byte) iCSClient
-	Server(cert []byte, key []byte, verifyFunc func(pars *url.URL) error) iCSServer
-}
-type iCSClient interface {
-	Send(url string, path string)
-	Receive(url string, path string)
-}
-type iCSServer interface {
-	Send(path string)
-	Receive(path string)
-	All(spath string, rpath string)
+	Client(rootCertificate ...[]byte)
+
+	// Server
+	//	@cert: 证书
+	//	@key: 密钥
+	//	@handleFunc：处理函数
+	Server(cert []byte, key []byte, handleFunc func(pars *url.URL) (path string, err error))
 }
 
 // --------------------------------------------------
@@ -279,24 +229,24 @@ type iCSServer interface {
 // --------------------------------------------------
 
 // 未被使用
-// func (c *Config) parseToken(token string) []byte {
-// 	if len(token) == 0 {
-// 		return []byte(errToken) // token错误, 会在握手时反馈
-// 	}
-// 	lc := strings.Count(token, "=")
-// 	token = strings.ReplaceAll(token, "=", "")
-// 	for i := 0; i < lc; i++ {
-// 		token = token + "="
-// 	}
-// 	token = strings.ToUpper(token)
+func (c *Config) parseToken(token string) []byte {
+	if len(token) == 0 {
+		return make([]byte, 16) // token错误, 会在握手时反馈
+	}
+	lc := strings.Count(token, "=")
+	token = strings.ReplaceAll(token, "=", "")
+	for i := 0; i < lc; i++ {
+		token = token + "="
+	}
+	token = strings.ToUpper(token)
 
-// 	data, err := base32.StdEncoding.DecodeString(token)
-// 	if err != nil {
-// 		return []byte(errToken)
-// 	} else {
-// 		return data
-// 	}
-// }
+	data, err := base32.StdEncoding.DecodeString(token)
+	if err != nil {
+		return make([]byte, 16)
+	} else {
+		return data
+	}
+}
 
 func verifyPath(path string, isSend bool) error {
 	if isSend {
