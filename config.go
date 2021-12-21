@@ -14,7 +14,6 @@ import (
 
 	"github.com/lysShub/fudp/internal/crypter/cert"
 	"github.com/lysShub/fudp/internal/crypter/ecc"
-	"github.com/lysShub/fudp/utils"
 )
 
 type mode uint8
@@ -31,28 +30,19 @@ const (
 	CRole
 )
 
-type act uint8
-
-const (
-	DownloadAct act = 1 << iota
-	UploadAct
-)
-
 type Config struct {
-	mode        mode   // 模式
-	role        role   // 角色
-	acti        act    // 权限
-	sendPath    string // 发送文件路径, 支持文件、文件夹
-	receivePath string // 接收文件路径
+	mode     mode   // 模式
+	role     role   // 角色
+	rootPath string // 根路径, 接收文件则是存放路径, 发送文件这是发送文件根路径
 
 	cert     []byte            // 证书
 	key      *ecdsa.PrivateKey // 私钥
 	token    []byte            // token, 用于校验证书; 等同于CS模式中证书的公钥
 	selfCert [][]byte          // 自签根证书的验签证书
 
-	url        string                                       // C端url: fudp://host:port/download?token=xxx&systen=windows
-	handleFunc func(pars *url.URL) (path string, err error) // 处理请求, 返回本地路径
-	err        error                                        // 配置错误
+	url        string                                      // C端url: fudp://host:port/download?token=xxx&systen=windows
+	handleFunc func(url *url.URL) (path string, err error) // 处理请求, 返回本地路径; 如果err不为空,则统一回复4xx, err作为回复msg
+	err        error                                       // 配置错误
 }
 
 // Configure 创建配置文件, 具有向导功能
@@ -68,12 +58,14 @@ func Configure(conf func(*Config)) (Config, error) {
 	return *c, nil
 }
 
+// PPMode 点对点模式
 func (c *Config) PPMode() iPPMode {
 	c.mode = PPMode
 	var pper = PPRoler{c}
 	return &pper
 }
 
+// CSMode client-server模式
 func (c *Config) CSMode() iCSMode {
 	c.mode = CSMode
 	var cser = CSRoler{c}
@@ -81,14 +73,50 @@ func (c *Config) CSMode() iCSMode {
 }
 
 // Send 发送文件(文件夹)
-// 	PP模式下, 发送文件的一方是server端
+// 	PP模式下, 规定发送文件的一方是server端
 func (p *PPRoler) Send(path string) {
-	var err error
-	if err = verifyPath(path, true); err != nil {
-		p.err = err
+	switch os.PathSeparator {
+	case '\\':
+		path = filepath.FromSlash(path)
+	case '/':
+		path = filepath.ToSlash(path)
+	default:
+		path = ""
 	}
-	p.sendPath = utils.FormatPath(path)
-	p.acti = UploadAct
+	var err error
+	p.rootPath, err = filepath.Abs(path)
+	if err != nil {
+		p.err = err
+		return
+	}
+	if fi, err := os.Stat(p.rootPath); os.IsNotExist(err) {
+		p.err = errors.New("'" + p.rootPath + "' not exist")
+		return
+	} else if fi.IsDir() {
+		var ts int
+		filepath.WalkDir(p.rootPath, func(path string, d fs.DirEntry, err error) error {
+			if fi, err := d.Info(); !d.IsDir() && err == nil {
+				ts = ts + int(fi.Size())
+			}
+			if ts > 0 {
+				return errors.New("null") // 退出
+			}
+			return nil
+		})
+		if ts <= 0 {
+			p.err = errors.New("'" + p.rootPath + "' is empty")
+			return
+		}
+	} else {
+		if fi, err := os.Stat(p.rootPath); err != nil {
+			p.err = errors.New("'" + p.rootPath + "' is not normal file")
+			return
+		} else if fi.Size() == 0 {
+			p.err = errors.New("'" + p.rootPath + "' is empty file")
+			return
+		}
+	}
+
 	p.role = SRole
 
 	p.cert, p.key, err = cert.GenerateCert(time.Hour*24, func(c *cert.CaRequest) {})
@@ -102,22 +130,49 @@ func (p *PPRoler) Send(path string) {
 		p.err = err
 		return
 	}
+
+	// 处理函数
+	p.handleFunc = func(url *url.URL) (path string, err error) {
+		// rootPath已经Abs解析, 不会存在父路径
+		if reqPath := filepath.Join(p.rootPath, url.Path); len(reqPath) > len(p.rootPath) {
+			if _, err := os.Stat(reqPath); err == nil {
+				return reqPath, nil
+			} else if os.IsNotExist(err) {
+				return "", ErrNotFound
+			}
+		}
+
+		return "", errors.New("invalid requset")
+	}
+
 }
 
 // Receive 接收文件(文件夹)
 // @url: 请求地址、参数
 // @path: 接收文件本地存放路径
-func (p *PPRoler) Receive(url string, path string) {
-	p.url = url
-
+func (p *PPRoler) Receive(path string) {
+	switch os.PathSeparator {
+	case '\\':
+		path = filepath.FromSlash(path)
+	case '/':
+		path = filepath.ToSlash(path)
+	default:
+		path = ""
+	}
 	var err error
-	if err = verifyPath(path, false); err != nil {
+	p.rootPath, err = filepath.Abs(path)
+	if err != nil {
 		p.err = err
 		return
 	}
+	if fi, err := os.Stat(p.rootPath); os.IsNotExist(err) {
+		p.err = errors.New("'" + p.rootPath + "' not exist")
+		return
+	} else if !fi.IsDir() {
+		p.err = errors.New("'" + p.rootPath + "' must dir")
+		return
+	}
 
-	p.receivePath = utils.FormatPath(path)
-	p.acti = DownloadAct
 	p.role = CRole
 
 	p.key, err = ecc.GenerateKey()
@@ -150,8 +205,8 @@ func (c *CSRoler) Client(rootCertificate ...[]byte) {
 // Server 服务端
 //	@cert 证书
 //	@key 私钥
-//	@verifyFunc url参数校验函数, 可以作为请求的Auth, nil表示校验成功, 否则回复401, 且err作为回复信息(明文)
-func (c *CSRoler) Server(cert []byte, key []byte, handleFunc func(pars *url.URL) (path string, err error)) {
+//	@handleFunc 处理函数, 返回本地路径
+func (c *CSRoler) Server(cert []byte, key []byte, handleFunc func(url *url.URL) (path string, err error)) {
 	var csserver = CSServer{c.Config}
 	csserver.cert = cert
 	var err error
@@ -211,22 +266,34 @@ type CSClient struct {
 	*Config
 }
 type iPPMode interface {
+	// Send 发送文件
+	//	@path 发送文件本地路径
+	// PP模式规定发送方是server, 接收方是client
 	Send(path string)
-	Receive(url string, path string)
+
+	// Receive 发送文件
+	//	@path 发送文件本地路径
+	// PP模式规定发送方是server, 接收方是client
+	Receive(path string)
 }
 type iCSMode interface {
+
+	// Client
+	//
 	Client(rootCertificate ...[]byte)
 
 	// Server
 	//	@cert: 证书
 	//	@key: 密钥
 	//	@handleFunc：处理函数
-	Server(cert []byte, key []byte, handleFunc func(pars *url.URL) (path string, err error))
+	Server(cert []byte, key []byte, handleFunc func(url *url.URL) (path string, err error))
 }
 
 // --------------------------------------------------
 
 // --------------------------------------------------
+
+var ErrNotFound error = errors.New("Not Found")
 
 // 未被使用
 func (c *Config) parseToken(token string) []byte {
@@ -246,39 +313,4 @@ func (c *Config) parseToken(token string) []byte {
 	} else {
 		return data
 	}
-}
-
-func verifyPath(path string, isSend bool) error {
-	if isSend {
-		fi, err := os.Stat(path)
-		if os.IsNotExist(err) {
-			return errors.New("invalid path: not exist")
-		} else {
-			if !fi.IsDir() {
-				if fi.Size() == 0 {
-					return errors.New("invalid path: file empty")
-				}
-			} else {
-				var s int64
-				filepath.Walk(path, func(path string, info fs.FileInfo, err error) error {
-					s = s + info.Size()
-					if s > 0 {
-						return errors.New("null")
-					}
-					return nil
-				})
-				if s == 0 {
-					return errors.New("invalid path: path empty")
-				}
-			}
-		}
-	} else {
-		fi, err := os.Stat(path)
-		if os.IsNotExist(err) {
-			return os.MkdirAll(path, 0666)
-		} else if !fi.IsDir() {
-			return errors.New("invalid path: is file path, expcet floder path")
-		}
-	}
-	return nil
 }

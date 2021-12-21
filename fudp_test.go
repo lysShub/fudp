@@ -40,11 +40,10 @@ func TestConfig(t *testing.T) {
 		{
 			fun: func(c *Config) { c.CSMode().Client([]byte("root certificate")) },
 			exp: Config{
-				mode:        CSMode,
-				role:        CRole,
-				acti:        DownloadAct,
-				receivePath: utils.FormatPath(""),
-				selfCert:    [][]byte{[]byte("root certificate")},
+				mode:     CSMode,
+				role:     CRole,
+				rootPath: utils.FormatPath(""),
+				selfCert: [][]byte{[]byte("root certificate")},
 			},
 		},
 	}

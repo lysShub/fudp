@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -22,7 +24,7 @@ func GetExePath() string {
 	return filepath.Dir(ex)
 }
 
-// GetExeName 格式化为当前系统的路径格式
+// FormatPath 格式化为当前系统的路径格式
 func FormatPath(path string) string {
 	var p rune = os.PathSeparator
 	switch p {
@@ -39,4 +41,38 @@ func FormatPath(path string) string {
 		path = GetExePath()
 	}
 	return path
+}
+func verifyPath(path string, isSend bool) error {
+	if isSend {
+		fi, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			return errors.New("invalid path: not exist")
+		} else {
+			if !fi.IsDir() {
+				if fi.Size() == 0 {
+					return errors.New("invalid path: file empty")
+				}
+			} else {
+				var s int64
+				filepath.Walk(path, func(path string, info fs.FileInfo, err error) error {
+					s = s + info.Size()
+					if s > 0 {
+						return errors.New("null")
+					}
+					return nil
+				})
+				if s == 0 {
+					return errors.New("invalid path: path empty")
+				}
+			}
+		}
+	} else {
+		fi, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			return os.MkdirAll(path, 0666)
+		} else if !fi.IsDir() {
+			return errors.New("invalid path: is file path, expcet floder path")
+		}
+	}
+	return nil
 }
