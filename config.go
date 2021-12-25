@@ -75,16 +75,8 @@ func (c *Config) CSMode() iCSMode {
 // Send 发送文件(文件夹)
 // 	PP模式下, 规定发送文件的一方是server端
 func (p *PPRoler) Send(path string) {
-	switch os.PathSeparator {
-	case '\\':
-		path = filepath.FromSlash(path)
-	case '/':
-		path = filepath.ToSlash(path)
-	default:
-		path = ""
-	}
 	var err error
-	p.rootPath, err = filepath.Abs(path)
+	p.rootPath, err = formatPath(path)
 	if err != nil {
 		p.err = err
 		return
@@ -108,7 +100,7 @@ func (p *PPRoler) Send(path string) {
 			return
 		}
 	} else {
-		if fi, err := os.Stat(p.rootPath); err != nil {
+		if fi, err := os.Stat(p.rootPath); err != nil || !fi.Mode().IsRegular() {
 			p.err = errors.New("'" + p.rootPath + "' is not normal file")
 			return
 		} else if fi.Size() == 0 {
@@ -133,7 +125,11 @@ func (p *PPRoler) Send(path string) {
 
 	// 处理函数
 	p.handleFunc = func(url *url.URL) (path string, err error) {
-		// rootPath已经Abs解析, 不会存在父路径
+		if url.Path, err = formatPath(url.Path); err != nil {
+			return "", err
+		}
+
+		// rootPath经过Abs处理, 不会存在父路径
 		if reqPath := filepath.Join(p.rootPath, url.Path); len(reqPath) > len(p.rootPath) {
 			if _, err := os.Stat(reqPath); err == nil {
 				return reqPath, nil
@@ -141,7 +137,6 @@ func (p *PPRoler) Send(path string) {
 				return "", ErrNotFound
 			}
 		}
-
 		return "", errors.New("invalid requset")
 	}
 
@@ -151,20 +146,13 @@ func (p *PPRoler) Send(path string) {
 // @url: 请求地址、参数
 // @path: 接收文件本地存放路径
 func (p *PPRoler) Receive(path string) {
-	switch os.PathSeparator {
-	case '\\':
-		path = filepath.FromSlash(path)
-	case '/':
-		path = filepath.ToSlash(path)
-	default:
-		path = ""
-	}
 	var err error
-	p.rootPath, err = filepath.Abs(path)
+	p.rootPath, err = formatPath(path)
 	if err != nil {
 		p.err = err
 		return
 	}
+
 	if fi, err := os.Stat(p.rootPath); os.IsNotExist(err) {
 		p.err = errors.New("'" + p.rootPath + "' not exist")
 		return
@@ -206,7 +194,7 @@ func (c *CSRoler) Client(rootCertificate ...[]byte) {
 //	@cert 证书
 //	@key 私钥
 //	@handleFunc 处理函数, 返回本地路径
-func (c *CSRoler) Server(cert []byte, key []byte, handleFunc func(url *url.URL) (path string, err error)) {
+func (c *CSRoler) Server(cert []byte, key []byte, handleFunc Handler) {
 	var csserver = CSServer{c.Config}
 	csserver.cert = cert
 	var err error
@@ -286,7 +274,7 @@ type iCSMode interface {
 	//	@cert: 证书
 	//	@key: 密钥
 	//	@handleFunc：处理函数
-	Server(cert []byte, key []byte, handleFunc func(url *url.URL) (path string, err error))
+	Server(cert []byte, key []byte, handleFunc Handler)
 }
 
 // --------------------------------------------------
@@ -294,6 +282,18 @@ type iCSMode interface {
 // --------------------------------------------------
 
 var ErrNotFound error = errors.New("Not Found")
+
+func formatPath(path string) (string, error) {
+	switch os.PathSeparator {
+	case '\\':
+		path = filepath.FromSlash(path)
+	case '/':
+		path = filepath.ToSlash(path)
+	default:
+		path = ""
+	}
+	return filepath.Abs(path)
+}
 
 // 未被使用
 func (c *Config) parseToken(token string) []byte {

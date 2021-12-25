@@ -15,7 +15,7 @@ func TestA(t *testing.T) {
 	fudp.Configure(func(c *fudp.Config) {
 		c.CSMode().Client()
 		c.CSMode().Server([]byte("证书"), []byte("密钥"), handleFunc)
-		c.PPMode().Receive("fudp://localhost:19986/down", "/tmp")
+		c.PPMode().Receive("/tmp")
 		c.PPMode().Send("~/use/docs")
 	})
 }

@@ -54,11 +54,10 @@ paylaod: [{证书}]
 握手包序号2:
 由Client--->Sever
 包头: [0 0 0 2]
-paylaod: [加密后密钥长度(2B) 非对称加密的密钥 {对称加密的URL}]
+paylaod: [加密后密钥长度(2B) 非对称加密的密钥 对称加密的URL]
 说明：
 	规定非对称加密为ECC_256，摘要为sha256，对称加密方式为AES_GCM_256。
-	url形如：fudp://host:port/download?token=xxx&systen=widows(区分大小写)
-		协议名、端口可以省略，端口默认时19986。参数中有部分key被保留、有部分有要求。
+	url形如：fudp://host:port/download?metho=get&token=xxx&systen=widows；协议名、端口可以省略，端口默认时19986。参数中有部分key被保留、有部分有要求。
 ```
 
 
@@ -82,12 +81,12 @@ paylaod: [响应码(2B) {附加信息}]
 
 以下参数为保留参数
 
-| KEY    | 说明     | 默认值 |
-| ------ | -------- | ------ |
-| act    | 请求动作 |        |
-| system | 操作系统 |        |
-| atime  | 时间精度 |        |
-|        |          |        |
+| KEY    | 说明     | 可选 | 枚举               |
+| ------ | -------- | ---- | ------------------ |
+| method | 请求方法 | No   | get、put           |
+| system | 操作系统 | Yes  | windwos、linux、…. |
+| atime  | 时间精度 | Yes  | 数字，单位毫秒     |
+|        |          |      |                    |
 
 
 
