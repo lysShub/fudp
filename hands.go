@@ -30,7 +30,7 @@ var errHandshake error = errors.New("handshake failed")
 // 	@stateCode: 状态码, 基本符合HTTPCode, 为0表示本地错误
 // 	@err: 错误信息或S端reply msg
 // 握手时没有可靠性保证, 任何数据错误将会导致握手失败、函数退出
-func (f *fudp) HandPing(ctx context.Context) (stateCode uint16, err error) {
+func (f *fudp) HandPing(ctx context.Context, config Config) (stateCode uint16, err error) {
 	defer f.conn.SetReadDeadline(time.Time{})
 	if ctx != nil {
 		var endCh = make(chan struct{})
@@ -71,8 +71,8 @@ func (f *fudp) HandPing(ctx context.Context) (stateCode uint16, err error) {
 		} else {
 			if fi == 0 && bias == 0 && pt == 1 && length != 0 {
 				var publicKey *ecdsa.PublicKey
-				if f.mode == CSMode { // CS 验签证书
-					if err = cert.VerifyCertificate(buf[:length], f.cert); log.Error(err) != nil {
+				if config.mode == CSMode { // CS 验签证书
+					if err = cert.VerifyCertificate(buf[:length], config.cert); log.Error(err) != nil {
 						return 0, errHandshake
 					}
 					if publicKey, err = cert.GetCertPubkey(buf[:length]); log.Error(err) != nil {
@@ -81,12 +81,12 @@ func (f *fudp) HandPing(ctx context.Context) (stateCode uint16, err error) {
 						}
 						return 0, errHandshake
 					}
-				} else if f.mode == PPMode { // PP 直接使用token 作为公钥
+				} else if config.mode == PPMode { // PP 直接使用token 作为公钥
 					if length != 0 {
 						log.Error(errors.New("PP mode got data, length = " + strconv.Itoa(int(length))))
 						return http.StatusMethodNotAllowed, errHandshake
 					}
-					if publicKey, err = ecc.ParsePubKey(f.token); log.Error(err) != nil {
+					if publicKey, err = ecc.ParsePubKey(config.token); log.Error(err) != nil {
 						return 0, errHandshake
 					}
 				} else {
@@ -107,7 +107,7 @@ func (f *fudp) HandPing(ctx context.Context) (stateCode uint16, err error) {
 				if ck, err := ecc.Encrypt(publicKey, f.secretKey[0:]); log.Error(err) != nil { // 公钥加密
 					return 0, errHandshake
 				} else {
-					u, err := url.Parse(f.url)
+					u, err := url.Parse(config.url)
 					if log.Error(err) != nil {
 						return 0, errors.New("invalid url")
 					}
@@ -164,7 +164,7 @@ func (f *fudp) HandPing(ctx context.Context) (stateCode uint16, err error) {
 //  @waitTimeout: 等待握手开始超时时间, 默认4秒
 // 	@err: 返回错误, nil表示握手成功
 // 如果在握手中遇到错误将会重新开始, 函数只有三种情况会退出：握手成功、等待超时、致命错误
-func (f *fudp) HandPong(ctx context.Context) (err error) {
+func (f *fudp) HandPong(ctx context.Context, config Config) (err error) {
 	defer f.conn.SetReadDeadline(time.Time{})
 	var buf []byte = make([]byte, maxCap)
 	var n int
@@ -214,7 +214,7 @@ func (f *fudp) HandPong(ctx context.Context) (err error) {
 			if length, fi, bias, pt, err := packet.Parse(buf[0:n], nil); log.Error(err) != nil {
 				continue
 			} else if fi == 0 && bias == 0 && pt == 0 && length == 0 {
-				n = copy(buf[0:], f.cert)
+				n = copy(buf[0:], config.cert)
 				if length, err := packet.Pack(buf[0:n], 0, 0, 1, nil); log.Error(err) != nil {
 					return errHandshake
 				} else {
@@ -237,7 +237,7 @@ func (f *fudp) HandPong(ctx context.Context) (err error) {
 					copy(ck, buf[2:lk+2])
 					copy(cp, buf[lk+2:length])
 
-					if key, err := ecc.Decrypt(f.key, ck); log.Error(err) != nil {
+					if key, err := ecc.Decrypt(config.key, ck); log.Error(err) != nil {
 						start = time.Time{}
 						continue
 					} else {
@@ -283,7 +283,7 @@ func (f *fudp) HandPong(ctx context.Context) (err error) {
 
 						copy(f.secretKey[:], key)
 						f.gcm = tmpGcm
-						f.url = url.String()
+						config.url = url.String()
 						return nil
 					}
 

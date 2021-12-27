@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/lysShub/fudp/internal/crypter/cert"
 	"github.com/lysShub/fudp/internal/crypter/ecc"
@@ -74,61 +73,24 @@ func (c *Config) CSMode() iCSMode {
 
 // Send 发送文件(文件夹)
 // 	PP模式下, 规定发送文件的一方是server端
-func (p *PPRoler) Send(path string) {
+//	@path: 发送文件的路径gn
+//	@ignore: 是否忽略不可读的文件, 如果设置为fals, 将会遍历所有文件
+func (p *PPRoler) Send(path string, ignore bool) {
 	var err error
-	p.rootPath, err = formatPath(path)
-	if err != nil {
+	if p.rootPath, err = formatPath(path); err != nil {
 		p.err = err
 		return
 	}
-	if fi, err := os.Stat(p.rootPath); os.IsNotExist(err) {
-		p.err = errors.New("'" + p.rootPath + "' not exist")
+	if p.err = checkSendPath(path, ignore); p.err != nil {
 		return
-	} else if fi.IsDir() {
-		var ts int
-		filepath.WalkDir(p.rootPath, func(path string, d fs.DirEntry, err error) error {
-			if fi, err := d.Info(); !d.IsDir() && err == nil {
-				ts = ts + int(fi.Size())
-			}
-			if ts > 0 {
-				return errors.New("null") // 退出
-			}
-			return nil
-		})
-		if ts <= 0 {
-			p.err = errors.New("'" + p.rootPath + "' is empty")
-			return
-		}
-	} else {
-		if fi, err := os.Stat(p.rootPath); err != nil || !fi.Mode().IsRegular() {
-			p.err = errors.New("'" + p.rootPath + "' is not normal file")
-			return
-		} else if fi.Size() == 0 {
-			p.err = errors.New("'" + p.rootPath + "' is empty file")
-			return
-		}
 	}
 
 	p.role = SRole
-
-	p.cert, p.key, err = cert.GenerateCert(time.Hour*24, func(c *cert.CaRequest) {})
-	if err != nil {
-		p.err = err
-		return
-	}
-
-	p.token, err = ecc.MarshalPubKey(&p.key.PublicKey)
-	if err != nil {
-		p.err = err
-		return
-	}
-
 	// 处理函数
 	p.handleFunc = func(url *url.URL) (path string, err error) {
 		if url.Path, err = formatPath(url.Path); err != nil {
 			return "", err
 		}
-
 		// rootPath经过Abs处理, 不会存在父路径
 		if reqPath := filepath.Join(p.rootPath, url.Path); len(reqPath) > len(p.rootPath) {
 			if _, err := os.Stat(reqPath); err == nil {
@@ -139,51 +101,33 @@ func (p *PPRoler) Send(path string) {
 		}
 		return "", errors.New("invalid requset")
 	}
-
 }
 
 // Receive 接收文件(文件夹)
 // @url: 请求地址、参数
 // @path: 接收文件本地存放路径
 func (p *PPRoler) Receive(path string) {
-	var err error
-	p.rootPath, err = formatPath(path)
-	if err != nil {
-		p.err = err
+	if p.rootPath, p.err = formatPath(path); p.err != nil {
 		return
 	}
-
 	if fi, err := os.Stat(p.rootPath); os.IsNotExist(err) {
 		p.err = errors.New("'" + p.rootPath + "' not exist")
 		return
 	} else if !fi.IsDir() {
-		p.err = errors.New("'" + p.rootPath + "' must dir")
+		p.err = errors.New("'" + p.rootPath + "' expect floder, got file path")
 		return
 	}
 
 	p.role = CRole
-
-	p.key, err = ecc.GenerateKey()
-	if err != nil {
-		p.err = err
-		return
-	}
-
-	pk, err := ecc.MarshalPubKey(&p.key.PublicKey)
-	if err != nil {
-		p.err = err
-		return
-	}
-	p.token = pk
 }
 
 // Client 客户端
 // 	@rootCertificate: 验签使用的根证书, 不填写将使用系统CA根证书
-func (c *CSRoler) Client(rootCertificate ...[]byte) {
+func (c *CSRoler) Client(rootSelfCertificate ...[]byte) {
 	var csclient = CSClient{c.Config}
-	csclient.selfCert = rootCertificate
-	for i, v := range rootCertificate {
-		if !cert.CertFormatCheck(v) {
+	csclient.selfCert = rootSelfCertificate
+	for i, v := range rootSelfCertificate {
+		if !cert.CheckCertFormat(v) {
 			c.err = errors.New("rootCertificate format error, index " + strconv.Itoa(i))
 		}
 	}
@@ -257,7 +201,7 @@ type iPPMode interface {
 	// Send 发送文件
 	//	@path 发送文件本地路径
 	// PP模式规定发送方是server, 接收方是client
-	Send(path string)
+	Send(path string, ignore bool)
 
 	// Receive 发送文件
 	//	@path 发送文件本地路径
@@ -293,6 +237,45 @@ func formatPath(path string) (string, error) {
 		path = ""
 	}
 	return filepath.Abs(path)
+}
+
+func checkSendPath(path string, ignore bool) (err error) {
+	if fi, e := os.Stat(path); os.IsNotExist(e) {
+		return errors.New("'" + path + "' not exist")
+	} else if fi.IsDir() {
+		var ts int
+		filepath.Walk(path, func(path string, info fs.FileInfo, err error) error {
+			if !info.IsDir() && err == nil {
+				if !ignore { // 判断是否可读
+					if fh, err := os.Open(path); err != nil {
+						err = errors.New("'" + path + "' can't read: " + err.Error())
+						return errors.New("null") // 退出
+					} else {
+						defer fh.Close()
+					}
+				}
+				ts = ts + int(fi.Size())
+			}
+			if ignore && ts > 0 {
+				return errors.New("null") // 退出
+			}
+			return nil
+		})
+		if ts <= 0 {
+			return errors.New("'" + path + "' is empty")
+		}
+	} else {
+		if fh, e := os.Open(path); e != nil {
+			err = errors.New("'" + path + "' can't read: " + err.Error())
+			return
+		} else {
+			defer fh.Close()
+			if fi.Size() == 0 {
+				return errors.New("'" + path + "' is empty file")
+			}
+		}
+	}
+	return nil
 }
 
 // 未被使用

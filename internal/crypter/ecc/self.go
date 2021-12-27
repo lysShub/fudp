@@ -12,11 +12,14 @@ import (
 	"math/big"
 )
 
-func GenerateKey() (priKey *ecdsa.PrivateKey, err error) {
+type PrivateKey = ecdsa.PrivateKey
+type PublicKey = ecdsa.PublicKey
+
+func GenerateKey() (priKey *PrivateKey, err error) {
 	return ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 }
 
-func MarshalPubKey(pubKey *ecdsa.PublicKey) (publicKey []byte, err error) {
+func MarshalPubKey(pubKey *PublicKey) (publicKey []byte, err error) {
 	if pubKey.X == nil || pubKey.Y == nil {
 		return nil, errors.New("invalid ecc public key")
 	}
@@ -26,7 +29,7 @@ func MarshalPubKey(pubKey *ecdsa.PublicKey) (publicKey []byte, err error) {
 	return elliptic.MarshalCompressed(elliptic.P256(), pubKey.X, pubKey.Y), nil
 }
 
-func ParsePubKey(publicKey []byte) (pubKey *ecdsa.PublicKey, err error) {
+func ParsePubKey(publicKey []byte) (pubKey *PublicKey, err error) {
 	x, y := elliptic.Unmarshal(elliptic.P256(), publicKey)
 	if x == nil || y == nil {
 		return nil, errors.New("invalid ecc public key")
@@ -37,15 +40,15 @@ func ParsePubKey(publicKey []byte) (pubKey *ecdsa.PublicKey, err error) {
 	return &ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}, nil
 }
 
-func MarshalPrikey(priKey *ecdsa.PrivateKey) (privateKey []byte, err error) {
+func MarshalPrikey(priKey *PrivateKey) (privateKey []byte, err error) {
 	return x509.MarshalPKCS8PrivateKey(priKey)
 }
 
-func ParsePriKey(privateKey []byte) (priKey *ecdsa.PrivateKey, err error) {
+func ParsePriKey(privateKey []byte) (priKey *PrivateKey, err error) {
 
 	if t, err := x509.ParsePKCS8PrivateKey(privateKey); err != nil {
 		return nil, err
-	} else if condition, ok := t.(*ecdsa.PrivateKey); ok {
+	} else if condition, ok := t.(*PrivateKey); ok {
 		return condition, nil
 	} else {
 		return nil, errors.New("invalid ecc private key")
@@ -54,8 +57,8 @@ func ParsePriKey(privateKey []byte) (priKey *ecdsa.PrivateKey, err error) {
 
 // Encrypt 公钥加密
 // 	密文结构为：{加密后密文 公钥 公钥长度(1B,单位字节)}
-func Encrypt(pubKey *ecdsa.PublicKey, plaintext []byte) (ciphertext []byte, err error) {
-	var selfKey *ecdsa.PrivateKey
+func Encrypt(pubKey *PublicKey, plaintext []byte) (ciphertext []byte, err error) {
+	var selfKey *PrivateKey
 	if selfKey, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader); err != nil {
 		return nil, err
 	}
@@ -93,7 +96,7 @@ func Encrypt(pubKey *ecdsa.PublicKey, plaintext []byte) (ciphertext []byte, err 
 }
 
 // Decrypt 私钥解密
-func Decrypt(priKey *ecdsa.PrivateKey, ciphertext []byte) (plaintext []byte, err error) {
+func Decrypt(priKey *PrivateKey, ciphertext []byte) (plaintext []byte, err error) {
 
 	l, pkl := len(ciphertext), int(ciphertext[len(ciphertext)-1])
 	if pkl+1 >= l { // 密文为空时取等号
@@ -136,7 +139,7 @@ func Decrypt(priKey *ecdsa.PrivateKey, ciphertext []byte) (plaintext []byte, err
 
 // Sign 私钥加密
 // 	签名的结构为：{x y x的长度(1B)}
-func Sign(priKey *ecdsa.PrivateKey, data []byte) (signature []byte, err error) {
+func Sign(priKey *PrivateKey, data []byte) (signature []byte, err error) {
 	r, s, err := ecdsa.Sign(rand.Reader, priKey, data)
 	if err != nil {
 		return nil, err
@@ -165,7 +168,7 @@ func Sign(priKey *ecdsa.PrivateKey, data []byte) (signature []byte, err error) {
 }
 
 // Verify 公钥验签
-func Verify(pubKey *ecdsa.PublicKey, signature []byte, data []byte) (bool, error) {
+func Verify(pubKey *PublicKey, signature []byte, data []byte) (bool, error) {
 
 	var rint, sint big.Int
 

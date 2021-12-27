@@ -1,27 +1,15 @@
 package ioer
 
-type Spin struct {
-	ch chan struct{}
+// 容量必须为1
+type spin chan struct{}
+
+func (s spin) wait() {
+	<-s
 }
 
-func NewSpin() *Spin {
-	return &Spin{
-		ch: make(chan struct{}),
-	}
-}
-
-func (s *Spin) Wait() {
-	<-s.ch
-}
-
-func (s *Spin) WaitChan() (ch *chan struct{}) {
-	return &s.ch
-}
-
-func (s *Spin) Signal() {
+func (s spin) done() {
 	select {
-	case s.ch <- struct{}{}:
+	case s <- struct{}{}:
 	default:
-		// nothing
 	}
 }

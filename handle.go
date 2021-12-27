@@ -12,9 +12,11 @@ func HandleFunc(pattern string, handler Handler) error {
 
 type Handler func(url *url.URL) (path string, err error)
 
+// 现在只实现了完全匹配
 type ServeMux struct {
 	mu sync.RWMutex
 	m  map[string]Handler
+	es []string // 根据uri升序排序, 最长匹配
 }
 
 var defaultServerMux = &ServeMux{

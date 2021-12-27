@@ -9,13 +9,16 @@ import (
 
 func main() {
 
-	i, err := ioer.New("udp", &net.UDPAddr{IP: net.ParseIP("192.168.1.8"), Port: 19986})
+	i, err := ioer.Listen("udp", &net.UDPAddr{IP: net.ParseIP("192.168.1.8"), Port: 19986})
 	if err != nil {
 		panic(err)
 	}
 
 	for {
-		conn := i.Accept()
+		conn, err := i.Accept()
+		if err != nil {
+			panic(err)
+		}
 		fmt.Println("new conn", conn.RemoteAddr())
 		go Handle(conn)
 	}
