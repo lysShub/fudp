@@ -6,11 +6,24 @@ import (
 	"sync"
 )
 
+// HandleFunc 注册全局handle
 func HandleFunc(pattern string, handler Handler) error {
 	return defaultServerMux.handleFunc(pattern, handler)
 }
 
-type Handler func(url *url.URL) (path string, err error)
+// Handle 获取handleFunc
+func Handle(pattern string) Handler {
+	if h, ok := defaultServerMux.m[pattern]; ok {
+		return h
+	}
+	return nil
+}
+
+// path 请求对应的工作路径
+// stateCode 状态码, 参考HTTP
+// msg 回复信息, 此信息不会加密
+// 当path不为空时表示接受请求, 将继续通信
+type Handler func(url *url.URL) (path string, stateCode int, msg string)
 
 // 现在只实现了完全匹配
 type ServeMux struct {

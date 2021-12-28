@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"net/url"
 
 	"github.com/lysShub/fudp/internal/crypter/cert"
 	"github.com/lysShub/fudp/internal/crypter/ecc"
@@ -19,6 +18,7 @@ type fudp struct {
 	// 一个fudp表示一个通信
 
 	conn      net.Conn   // connected UDP socket
+	path      string     // 本次传输工作路径
 	secretKey [16]byte   // 对称加密(AES_GCM_128)密钥
 	gcm       packet.Gcm // 对称加密(AES_GCM_128)
 }
@@ -38,12 +38,8 @@ func ListenAndServer(addr string, path string, ca, key []byte) (err error) {
 	if _, err := ecc.ParsePriKey(key); len(key) == 0 || err != nil {
 		return errors.New("invalid key")
 	} else {
-		var handle Handler = func(url *url.URL) (path string, err error) {
-			return "", nil
-		}
-
 		conf, err = Configure(func(c *Config) {
-			c.CSMode().Server(ca, key, handle)
+			c.CSMode().Server(ca, key, nil)
 		})
 		if err != nil {
 			return err
@@ -73,8 +69,6 @@ func ListenAndServer(addr string, path string, ca, key []byte) (err error) {
 			}(conn)
 		}
 	}
-
-	return
 }
 
 // FileServer 作为文件下载服务器启动服务

@@ -226,8 +226,8 @@ func (f *fudp) HandPong(ctx context.Context, config Config) (err error) {
 				}
 
 			} else if fi == 0 && bias == 0 && pt == 2 && length >= 2 && !start.IsZero() {
-				var rcode uint16 = 0
-				var rmsg string = ""
+				var rcode int = 200
+				var rmsg string = "ok"
 				lk := uint16(buf[1])<<8 | uint16(buf[0])
 				if lk+2 > length {
 					start = time.Time{}
@@ -259,11 +259,18 @@ func (f *fudp) HandPong(ctx context.Context, config Config) (err error) {
 						if len(cp) > 0 {
 							if urlBytes, err := tmpGcm.Open(nil, make([]byte, 12), cp, nil); err == nil {
 								if url, err = url.Parse(string(urlBytes)); err == nil {
-									// if err := f.handleFunc(url); err != nil {
-									// 	rcode, rmsg = 401, "url auth failed" // 服务器拒绝 校验失败
-									// }
+									var wp string
+									if config.handleFunc != nil {
+										if wp, rcode, rmsg = config.handleFunc(url); len(wp) != 0 {
+											f.path = wp
+										}
+									} else if h := Handle(url.Path); h != nil {
+										if wp, rcode, rmsg = h(url); len(wp) != 0 {
+											f.path = wp
+										}
+									}
 								} else {
-									rcode, rmsg = 400, "url parse failed" // 请求信息错误 参数解密失败
+									rcode, rmsg = http.StatusBadRequest, "can't parse url" // 请求信息错误 参数解密失败
 								}
 							} else {
 								start = time.Time{}

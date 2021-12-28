@@ -5,6 +5,7 @@ import (
 	"encoding/base32"
 	"errors"
 	"io/fs"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -39,9 +40,9 @@ type Config struct {
 	token    []byte            // token, 用于校验证书; 等同于CS模式中证书的公钥
 	selfCert [][]byte          // 自签根证书的验签证书
 
-	url        string                                      // C端url: fudp://host:port/download?token=xxx&systen=windows
-	handleFunc func(url *url.URL) (path string, err error) // 处理请求, 返回本地路径; 如果err不为空,则统一回复4xx, err作为回复msg
-	err        error                                       // 配置错误
+	url        string  // C端url: fudp://host:port/download?token=xxx&systen=windows
+	handleFunc Handler // 不设置使用全局注册handle, 设置只使用此函数
+	err        error   // 配置错误
 }
 
 // Configure 创建配置文件, 具有向导功能
@@ -87,19 +88,19 @@ func (p *PPRoler) Send(path string, ignore bool) {
 
 	p.role = SRole
 	// 处理函数
-	p.handleFunc = func(url *url.URL) (path string, err error) {
+	p.handleFunc = func(url *url.URL) (path string, stateCode int, msg string) {
 		if url.Path, err = formatPath(url.Path); err != nil {
-			return "", err
+			return "", 0, err.Error()
 		}
 		// rootPath经过Abs处理, 不会存在父路径
 		if reqPath := filepath.Join(p.rootPath, url.Path); len(reqPath) > len(p.rootPath) {
 			if _, err := os.Stat(reqPath); err == nil {
-				return reqPath, nil
+				return reqPath, http.StatusOK, "ok"
 			} else if os.IsNotExist(err) {
-				return "", ErrNotFound
+				return "", http.StatusNotFound, "not found"
 			}
 		}
-		return "", errors.New("invalid requset")
+		return "", http.StatusBadRequest, "invalid requset"
 	}
 }
 
@@ -224,8 +225,6 @@ type iCSMode interface {
 // --------------------------------------------------
 
 // --------------------------------------------------
-
-var ErrNotFound error = errors.New("Not Found")
 
 func formatPath(path string) (string, error) {
 	switch os.PathSeparator {
