@@ -5,6 +5,7 @@ package fudp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 
 	"github.com/lysShub/fudp/internal/crypter/cert"
@@ -24,17 +25,19 @@ type fudp struct {
 }
 
 // ListenAndServer 必须是CS模式的Server端
-func ListenAndServer(addr string, path string, ca, key []byte) (err error) {
+func ListenAndServer(addr string, path string, caPath, keyPath string) (err error) {
 	var conf Config
-
 	if path, err = formatPath(path); err != nil {
 		return err
 	} else if err = checkSendPath(path, true); err != nil {
 		return err
 	}
-	if len(ca) == 0 || !cert.CheckCertFormat(ca) {
-		return errors.New("invalid CA certificate")
+
+	var ca, key []byte
+	if err := cert.CheckCertFile(caPath, keyPath); err != nil {
+		return err
 	}
+
 	if _, err := ecc.ParsePriKey(key); len(key) == 0 || err != nil {
 		return errors.New("invalid key")
 	} else {
@@ -47,10 +50,10 @@ func ListenAndServer(addr string, path string, ca, key []byte) (err error) {
 	}
 
 	var l *ioer.Listener
-	if a, err := net.ResolveUDPAddr("udp", addr); err != nil {
+	if uaddr, err := net.ResolveUDPAddr("udp", addr); err != nil {
 		return err
 	} else {
-		if l, err = ioer.Listen("udp", a); err != nil {
+		if l, err = ioer.Listen("udp", uaddr); err != nil {
 			return err
 		}
 	}
@@ -61,7 +64,7 @@ func ListenAndServer(addr string, path string, ca, key []byte) (err error) {
 		} else {
 			go func(conn net.Conn) {
 				var f = fudp{conn: conn}
-				if err := f.HandPong(context.Background(), conf); err != nil {
+				if err := f.HandPong(conf); err != nil {
 					return
 				}
 				// 开始传输
@@ -75,13 +78,50 @@ func ListenAndServer(addr string, path string, ca, key []byte) (err error) {
 // 	@path 文件/文件夹路径, 必须存在
 // 	@certPath 证书文件路径
 // 	@keyPaht 密钥文件路径
-func FileServer(addr, path, certPath, keyPath string) (err error) { return }
+func FileServer(addr, path, caPath, keyPath string) (err error) {
+	var conf Config
+	if path, err = formatPath(path); err != nil {
+		return err
+	} else if err = checkSendPath(path, true); err != nil {
+		return err
+	}
+
+	if err := cert.CheckCertFile(caPath, keyPath); err != nil {
+
+	}
+
+	var key, ca []byte
+
+	if _, err := ecc.ParsePriKey(key); len(key) == 0 || err != nil {
+		return errors.New("invalid key")
+	} else {
+		conf, err = Configure(func(c *Config) {
+			c.CSMode().Server(ca, key, nil)
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	fmt.Println(conf)
+	return
+}
 
 // Post 从服务器下载文件
 // 	@url 请求地址
 // 	@path 请求文件/文件夹在本地存放路径
 // 	@ca 验签证书, 相较于系统证书优先使用
-func Pull(ctx context.Context, url string, path string, ca ...[]byte) (err error) { return }
+func Pull(ctx context.Context, url string, path string, ca ...[]byte) (err error) {
+	// var conf Config
+	if path, err = formatPath(path); err != nil {
+		return err
+	} else if err = checkSendPath(path, true); err != nil {
+		return err
+	}
+
+	return
+
+}
 
 // Push 上传文件/文件夹到服务器
 //	@url 请求地址

@@ -4,11 +4,14 @@ package cert
 
 import (
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"io"
 	"math/big"
+	"os"
 	"strconv"
 	"time"
 
@@ -30,6 +33,35 @@ func ParseCertificate(cert []byte) (*x509.Certificate, error) {
 			return nil, err
 		} else {
 			return c, nil
+		}
+	}
+}
+
+func ParseCertificateFile(certPath string) (*x509.Certificate, error) {
+	if fh, err := os.Open(certPath); err != nil {
+		return nil, err
+	} else {
+		if da, err := io.ReadAll(fh); err != nil {
+			return nil, err
+		} else {
+			return ParseCertificate(da)
+		}
+	}
+}
+
+// ParseKey 解析密钥
+func ParseKey(key []byte) (*ecc.PrivateKey, error) {
+	return ecc.ParsePriKey(key)
+}
+
+func ParseKeyFile(keyPath string) (*ecc.PrivateKey, error) {
+	if fh, err := os.Open(keyPath); err != nil {
+		return nil, err
+	} else {
+		if da, err := io.ReadAll(fh); err != nil {
+			return nil, err
+		} else {
+			return ParseKey(da)
 		}
 	}
 }
@@ -135,8 +167,40 @@ func GenerateCert(timeout time.Duration, fun func(c *Csr), rootCert ...*x509.Cer
 	return cert, prikey, nil
 }
 
-// CheckCertFormat 校验证书格式与加密算法
-func CheckCertFormat(cert []byte) bool {
-	_, err := ParseCertificate(cert)
-	return err == nil
+// CheckCertFormat 校验证书与密钥是否为同一对
+func CheckCert(cert, key []byte) error {
+	if pub, err := GetCertPubkey(cert); err != nil {
+		return err
+	} else {
+		if pri, err := ParseKey(key); err != nil {
+			return err
+		} else {
+			if !pub.Equal(pri.PublicKey) {
+				return errors.New("public key not equal")
+			} else if pub.Curve != elliptic.P256() {
+				return errors.New("invalid elliptic curve, expect 256, got " + pub.Params().Name)
+			}
+		}
+	}
+	return nil
+}
+
+func CheckCertFile(certPath, keyPath string) error {
+	var cert, key []byte
+	if cfh, err := os.Open(certPath); err != nil {
+		return err
+	} else {
+		if cert, err = io.ReadAll(cfh); err != nil {
+			return err
+		}
+	}
+	if kfh, err := os.Open(keyPath); err != nil {
+		return err
+	} else {
+		if key, err = io.ReadAll(kfh); err != nil {
+			return err
+		}
+	}
+
+	return CheckCert(cert, key)
 }

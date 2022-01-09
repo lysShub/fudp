@@ -3,7 +3,6 @@ package fudp
 // fudp 握手
 
 import (
-	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdsa"
@@ -30,20 +29,8 @@ var errHandshake error = errors.New("handshake failed")
 // 	@stateCode: 状态码, 基本符合HTTPCode, 为0表示本地错误
 // 	@err: 错误信息或S端reply msg
 // 握手时没有可靠性保证, 任何数据错误将会导致握手失败、函数退出
-func (f *fudp) HandPing(ctx context.Context, config Config) (stateCode uint16, err error) {
+func (f *fudp) HandPing(config Config) (stateCode uint16, err error) {
 	defer f.conn.SetReadDeadline(time.Time{})
-	if ctx != nil {
-		var endCh = make(chan struct{})
-		defer func() { endCh <- struct{}{} }()
-		go func() {
-			select {
-			case <-ctx.Done():
-			case <-endCh:
-			}
-			f.conn.SetReadDeadline(time.Now())
-		}()
-
-	}
 
 	var buf []byte = make([]byte, maxCap)
 	var n int
@@ -126,10 +113,8 @@ func (f *fudp) HandPing(ctx context.Context, config Config) (stateCode uint16, e
 						if _, err = f.conn.Write(buf[:length]); err != nil {
 							return 0, errHandshake
 						}
-						// 进入下一步
 					}
 				}
-
 			} else {
 				log.Error(errors.New("unexpected packet: fileIndex=" + strconv.Itoa(int(fi)) + ", bias=" + strconv.Itoa(int(bias)) + ", packageType=" + strconv.Itoa(int(pt)) + ", length=" + strconv.Itoa(int(length))))
 				return 0, errHandshake
@@ -164,51 +149,21 @@ func (f *fudp) HandPing(ctx context.Context, config Config) (stateCode uint16, e
 //  @waitTimeout: 等待握手开始超时时间, 默认4秒
 // 	@err: 返回错误, nil表示握手成功
 // 如果在握手中遇到错误将会重新开始, 函数只有三种情况会退出：握手成功、等待超时、致命错误
-func (f *fudp) HandPong(ctx context.Context, config Config) (err error) {
+func (f *fudp) HandPong(config Config) (err error) {
 	defer f.conn.SetReadDeadline(time.Time{})
 	var buf []byte = make([]byte, maxCap)
 	var n int
 
-	var run, start time.Time = time.Now(), time.Time{} // 开始时间 握手开始时间
-	var wait time.Duration = 1<<63 - 1                 // 等待握手开始超时时间
-	if ctx != nil {
-		if tout, ok := ctx.Deadline(); ok {
-			wait = time.Until(tout)
-		} else {
-			var endCh = make(chan struct{})
-			defer func() { endCh <- struct{}{} }()
-			go func() {
-				select {
-				case <-ctx.Done():
-				case <-endCh:
-				}
-				wait = time.Since(start)
-				f.conn.SetReadDeadline(time.Now())
-			}()
-		}
-	}
-
-	for {
-		if !start.IsZero() {
-			if err = f.conn.SetReadDeadline(time.Now().Add(constant.RTT + constant.RTT/2)); log.Error(err) != nil {
-				return errHandshake
-			}
-		} else {
-			if err = f.conn.SetReadDeadline(time.Now().Add(wait - time.Since(run))); log.Error(err) != nil {
-				return errHandshake
-			}
+	for i := 0; i < 4; i++ {
+		if err = f.conn.SetReadDeadline(time.Now().Add(constant.RTT + constant.RTT/2)); log.Error(err) != nil {
+			return errHandshake
 		}
 
 		if n, err = f.conn.Read(buf); log.Error(err) != nil {
-			if !start.IsZero() {
-				start = time.Time{}
+			if strings.Contains(err.Error(), "timeout") {
 				continue
 			} else {
-				if strings.Contains(err.Error(), "timeout") {
-					return errors.New("timeout")
-				} else {
-					return errHandshake
-				}
+				return errHandshake
 			}
 		} else {
 			if length, fi, bias, pt, err := packet.Parse(buf[0:n], nil); log.Error(err) != nil {
@@ -220,17 +175,13 @@ func (f *fudp) HandPong(ctx context.Context, config Config) (err error) {
 				} else {
 					if _, err = f.conn.Write(buf[:length]); err != nil {
 						return errHandshake
-					} else {
-						start = time.Now()
 					}
 				}
-
-			} else if fi == 0 && bias == 0 && pt == 2 && length >= 2 && !start.IsZero() {
+			} else if fi == 0 && bias == 0 && pt == 2 && length >= 2 {
 				var rcode int = 200
 				var rmsg string = "ok"
 				lk := uint16(buf[1])<<8 | uint16(buf[0])
 				if lk+2 > length {
-					start = time.Time{}
 					continue
 				} else {
 					var ck, cp []byte = make([]byte, lk), make([]byte, length-lk-2)
@@ -238,12 +189,10 @@ func (f *fudp) HandPong(ctx context.Context, config Config) (err error) {
 					copy(cp, buf[lk+2:length])
 
 					if key, err := ecc.Decrypt(config.key, ck); log.Error(err) != nil {
-						start = time.Time{}
 						continue
 					} else {
 						if len(key) == 16 {
 							log.Error(errors.New("unsupported key length: " + strconv.Itoa(len(key))))
-							start = time.Time{}
 							continue
 						}
 						var tmpGcm cipher.AEAD
@@ -268,12 +217,13 @@ func (f *fudp) HandPong(ctx context.Context, config Config) (err error) {
 										if wp, rcode, rmsg = h(url); len(wp) != 0 {
 											f.path = wp
 										}
+									} else {
+										rcode, rmsg = http.StatusNotFound, "not found"
 									}
 								} else {
 									rcode, rmsg = http.StatusBadRequest, "can't parse url" // 请求信息错误 参数解密失败
 								}
 							} else {
-								start = time.Time{}
 								continue
 							}
 						}
@@ -296,11 +246,9 @@ func (f *fudp) HandPong(ctx context.Context, config Config) (err error) {
 
 				}
 			} else {
-				if !start.IsZero() {
-					start = time.Time{}
-				}
 				continue
 			}
 		}
 	}
+	return errors.New("timeout")
 }

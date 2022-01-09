@@ -40,6 +40,7 @@ func ParsePubKey(publicKey []byte) (pubKey *PublicKey, err error) {
 	return &ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}, nil
 }
 
+// MarshalPrikey PKCS8
 func MarshalPrikey(priKey *PrivateKey) (privateKey []byte, err error) {
 	return x509.MarshalPKCS8PrivateKey(priKey)
 }

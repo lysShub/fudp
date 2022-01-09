@@ -35,6 +35,7 @@
 paylaod: 空
 说明：
 	请求握手。
+	
 ```
 
 
@@ -58,6 +59,7 @@ paylaod: [加密后密钥长度(2B) 非对称加密的密钥 对称加密的URL]
 说明：
 	规定非对称加密为ECC_256，摘要为sha256，对称加密方式为AES_GCM_256。
 	url形如：fudp://host:port/download?metho=get&token=xxx&systen=widows；协议名、端口可以省略，端口默认时19986。参数中有部分key被保留、有部分有要求。
+
 ```
 
 

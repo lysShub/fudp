@@ -128,7 +128,7 @@ func (c *CSRoler) Client(rootSelfCertificate ...[]byte) {
 	var csclient = CSClient{c.Config}
 	csclient.selfCert = rootSelfCertificate
 	for i, v := range rootSelfCertificate {
-		if !cert.CheckCertFormat(v) {
+		if _, err := cert.ParseCertificate(v); err != nil {
 			c.err = errors.New("rootCertificate format error, index " + strconv.Itoa(i))
 		}
 	}
@@ -275,6 +275,11 @@ func checkSendPath(path string, ignore bool) (err error) {
 		}
 	}
 	return nil
+}
+
+func checkReceivePath(path string) (err error) {
+
+	return
 }
 
 // 未被使用
