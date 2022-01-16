@@ -15,10 +15,6 @@ import (
 type PrivateKey = ecdsa.PrivateKey
 type PublicKey = ecdsa.PublicKey
 
-func GenerateKey() (priKey *PrivateKey, err error) {
-	return ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-}
-
 func MarshalPubKey(pubKey *PublicKey) (publicKey []byte, err error) {
 	if pubKey.X == nil || pubKey.Y == nil {
 		return nil, errors.New("invalid ecc public key")

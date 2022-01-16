@@ -19,7 +19,7 @@ func TestCert(t *testing.T) {
 
 }
 
-func TestMain() {
+func aTestMain() {
 	// u, err := url.Parse("getnwenku.com")
 	// if err != nil {
 	// 	fmt.Println(err)

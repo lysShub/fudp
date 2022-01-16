@@ -1,5 +1,13 @@
 package ecc
 
+import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+
+	"golang.org/x/crypto/curve25519"
+)
+
 // 实现ECC_P256实现的非对称加密
 // go官方库crypto/elliptic和crypto/ecdsa没有实现开箱即用的接口, 需要进行二次封装
 //
@@ -15,3 +23,31 @@ func Decrypt(prikey []byte, ciphertext []byte) (plaintext []byte, err error)
 func Sign(prikey []byte, data []byte) (signature []byte, err error)
 func Verify(pubkey []byte, signature []byte, data []byte) (bool, error)
 */
+
+type PrivateKey ecdsa.PrivateKey
+type PublicKey ecdsa.PublicKey
+
+func GenerateKey() (priKey *PrivateKey, err error) {
+	pri, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	return (*PrivateKey)(pri), nil
+}
+
+func (pri *PrivateKey) Decrypt(ciphertext []byte) []byte {
+	return nil
+}
+
+func Encrypt(pub *PublicKey, msg []byte) (ciphertext []byte, err error) {
+	peerPub := pub
+	pri, err := GenerateKey()
+	if err != nil {
+		return nil, err
+	}
+	// golang.org/x/crypto/curve25519
+	// pri pub
+	curve25519.X25519(nil, peerPub)
+
+	return nil
+}
