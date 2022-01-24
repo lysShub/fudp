@@ -65,18 +65,29 @@ func (s *sconn) push(rLen *int) (err error) {
 }
 
 func (s *sconn) Write(b []byte) (n int, err error) {
-	var i int
-	for i = 512; i < len(b); i = i + 512 {
-		if n, err = s.conn.Write(b[i-512 : i]); err != nil {
-			return n, err
+
+	for i := 0; i < len(b); i = i + 512 {
+		j := i + 512
+		if j > len(b) {
+			j = len(b)
 		}
-		time.Sleep(time.Microsecond)
-	}
-	if len(b)%512 != 0 {
-		if n, err = s.conn.Write(b[i:]); err != nil {
+		if n, err = s.conn.Write(b[i:j]); err != nil {
 			return n, err
 		}
 	}
+
+	// var i int
+	// for i = 512; i < len(b); i = i + 512 {
+	// 	if n, err = s.conn.Write(b[i-512 : i]); err != nil {
+	// 		return n, err
+	// 	}
+	// 	time.Sleep(time.Microsecond)
+	// }
+	// if len(b)%512 != 0 {
+	// 	if n, err = s.conn.Write(b[i:]); err != nil {
+	// 		return n, err
+	// 	}
+	// }
 	return len(b), nil
 }
 
