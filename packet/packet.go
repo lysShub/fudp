@@ -8,8 +8,7 @@ import (
 	"github.com/lysShub/fudp/constant"
 )
 
-type Gcm cipher.AEAD
-
+const Append = 29 // package后数据最大增加量
 var none []byte = make([]byte, 12)
 
 // pack 打包, 确保data有足够的容量, 否则会打包失败
@@ -19,7 +18,7 @@ var none []byte = make([]byte, 12)
 // 	@ fi:    文件序号
 // 	@ gcm:   gcm实例, 为nil表示不加密
 // 返回包的有效长度
-func Pack(data []byte, fi uint32, bias uint64, pt uint8, gcm *Gcm) (length uint16, err error) {
+func Pack(data []byte, fi uint32, bias uint64, pt uint8, gcm cipher.AEAD) (length uint16, err error) {
 
 	if cap(data)-len(data) < 29 {
 		return 0, errors.New("expect capacity of data more than length 29, actual len(data):" + strconv.Itoa(len(data)) + "   cap(data):" + strconv.Itoa(cap(data)))
@@ -58,7 +57,7 @@ func Pack(data []byte, fi uint32, bias uint64, pt uint8, gcm *Gcm) (length uint1
 
 	hl := lfi + lbias + 2
 	if gcm != nil {
-		data = (*gcm).Seal(data[:0], none, data, head[:hl])
+		data = gcm.Seal(data[:0], none, data, head[:hl])
 		data = append(data[:], head[:hl]...)
 		return uint16(len(data)), nil
 	} else {
@@ -70,7 +69,7 @@ func Pack(data []byte, fi uint32, bias uint64, pt uint8, gcm *Gcm) (length uint1
 // parse 解包
 // 	@ data: 协议包格式的数据
 // 	@ gcm:	gcm实例, 为nil表示不解密
-func Parse(data []byte, gcm *Gcm) (length uint16, fi uint32, bias uint64, pt uint8, err error) {
+func Parse(data []byte, gcm cipher.AEAD) (length uint16, fi uint32, bias uint64, pt uint8, err error) {
 	l := len(data) - 1
 
 	if l >= 2 {
@@ -98,7 +97,7 @@ func Parse(data []byte, gcm *Gcm) (length uint16, fi uint32, bias uint64, pt uin
 
 	if gcm != nil {
 		// l 密文最后一字节在data中位置
-		data, err = (*gcm).Open(data[:0], none, data[:l+1], data[l+1:])
+		data, err = gcm.Open(data[:0], none, data[:l+1], data[l+1:])
 		if err != nil {
 			length = 0
 		} else {

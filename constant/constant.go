@@ -15,7 +15,7 @@ const MTU = 5000
 
 // 握手开始后, 整个握手过程的超时时间
 // 理论耗时：C端1.5RTT, S端1RTT
-const HandshakeTimeout = time.Millisecond * 400
+const HandshakeTimeout time.Duration = time.Millisecond * 400
 
 // RTT 数据包往返时间, 及PING的时间
 const RTT = time.Millisecond * 250
