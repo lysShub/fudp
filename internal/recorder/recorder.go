@@ -51,7 +51,9 @@ func (r *Recorder) Put(start, end uint64) {
 
 			// 开始找si
 			for i = i + 0; i > 0; i = i - 2 {
-				if r.list[i] >= start {
+				// if r.list[i] >= start {
+				if r.list[i-1] <= start {
+
 					// 插入的头在此block有交集
 					// 取两个头的最小值
 					if start <= r.list[i-1]-1 {
@@ -69,8 +71,12 @@ func (r *Recorder) Put(start, end uint64) {
 				}
 			}
 
-			// 没找到si，不可能， 只能是start > end的情况
-			return
+			// 没找到si，不可能， 只能是start > end和
+			// 已存在的最小值不为0，start 小于最小值
+			// 两种情况
+			si = 1
+			r.list[0] = start
+			goto mr
 		}
 	}
 

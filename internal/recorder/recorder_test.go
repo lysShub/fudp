@@ -106,8 +106,10 @@ var data []suit = []suit{
 }
 
 var firstSuit suit = suit{
-	put: []uint64{1, 2, 4, 5, 0, 9},
-	exp: []uint64{0, 1372},
+	// put: []uint64{1, 2, 4, 5, 0, 9},
+	// exp: []uint64{0, 1372},
+
+	// put: []uint64{5, 1372, 0, 5},
 
 	blocks: 1,
 	gaps:   0,
