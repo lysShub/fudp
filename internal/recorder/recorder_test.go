@@ -69,7 +69,7 @@ var data []suit = []suit{
 		put:    []uint64{5, 1372},
 		exp:    []uint64{5, 1372},
 		blocks: 2,
-		gaps:   4,
+		gaps:   5,
 	},
 	{
 		put:    []uint64{1372, 0},

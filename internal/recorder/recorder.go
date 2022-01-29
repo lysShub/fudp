@@ -82,8 +82,17 @@ func (r *Recorder) Blocks() uint64 {
 	return r.blocks
 }
 func (r *Recorder) GapSize() uint64 {
-	return r.gaps
+	s := uint64(0)
+	for i := 2; i < len(r.list)-1; i = i + 2 {
+		s += r.list[i] - r.list[i-1]
+	}
+	s += r.list[0] - 0
+	return s
 }
+
+// func (r *Recorder) Changed() int {
+
+// }
 
 func (r *Recorder) Show() []uint64 {
 	if r.list[1] == 1<<64-1 {
