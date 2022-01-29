@@ -6,7 +6,6 @@ type Recorder struct {
 	gaps   uint64 // 所有间隙大小和
 	blocks uint64 // 所有块个数
 
-	same bool
 }
 
 func NewRecorder() *Recorder {
@@ -23,6 +22,14 @@ func NewRecorder() *Recorder {
 func (r *Recorder) Put(start, end uint64) {
 	if start > end {
 		return
+	} else if start > r.list[len(r.list)-1] { // diff大于0
+		// 绝大多数情况
+		if start-r.list[len(r.list)-1] == 1 {
+			r.list[len(r.list)-1] = end
+		} else {
+			r.list = append(r.list, start, end)
+		}
+		return
 	}
 
 	var si, ei int = -1, -1 // block 索引位置
@@ -35,6 +42,11 @@ func (r *Recorder) Put(start, end uint64) {
 				r.list[i] = end // 吞并 swallow
 			}
 			ei = i
+			if i+2 <= len(r.list)-1 && r.list[i+1]-r.list[i] <= 1 {
+				// 需要邻块合并
+				n := copy(r.list[i:], r.list[i+2:])
+				r.list = r.list[:i+n]
+			}
 			// 找到ei了
 
 			// 开始找si
@@ -46,6 +58,12 @@ func (r *Recorder) Put(start, end uint64) {
 						r.list[i-1] = start
 					}
 					si = i
+					if i-3 >= 0 && r.list[i-1]-r.list[i-2] <= 1 {
+						// 需要邻块合并
+						si, ei = si-2, ei-2
+						n := copy(r.list[i-2:], r.list[i:])
+						r.list = r.list[:i-2+n]
+					}
 
 					goto mr // 可以合并
 				}
@@ -71,7 +89,6 @@ mr:
 		return
 	} else {
 		// 合并
-
 		n := copy(r.list[si:], r.list[ei:])
 		r.list = r.list[:si+n]
 	}
