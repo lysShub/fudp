@@ -10,21 +10,16 @@ type Recorder struct {
 
 func NewRecorder() *Recorder {
 	rs := &Recorder{
-		list:   make([]uint64, 0, 128),
+		list:   make([]uint64, 2, 128),
 		gaps:   0,
 		blocks: 0,
 	}
+	rs.list[0], rs.list[1] = 0, 1<<64-1
 	return rs
 }
 
 // [start end]
 func (r *Recorder) Put(start, end uint64) {
-	defer func() {
-		if recover() != nil {
-			r.list = append(r.list, start, end)
-		}
-	}()
-
 	if start > end {
 		return
 	} else if start > r.list[len(r.list)-1] { // diff大于0
@@ -43,7 +38,7 @@ func (r *Recorder) Put(start, end uint64) {
 
 			// 新的的尾在此block有交集
 			// 取两个尾的最大值
-			if r.list[i] < end {
+			if r.list[i]+1 <= end {
 				r.list[i] = end // 吞并 swallow
 			}
 			ei = i
@@ -112,12 +107,9 @@ func (r *Recorder) Blocks() uint64 {
 func (r *Recorder) GapSize() uint64 {
 	s := uint64(0)
 	for i := 2; i < len(r.list)-1; i = i + 2 {
-		s += r.list[i] - r.list[i-1] - 1
+		s += r.list[i] - r.list[i-1]
 	}
-	if len(r.list) > 0 {
-		s += r.list[0] - 0
-	}
-
+	s += r.list[0] - 0
 	return s
 }
 
@@ -126,5 +118,9 @@ func (r *Recorder) GapSize() uint64 {
 // }
 
 func (r *Recorder) Show() []uint64 {
-	return r.list
+	if r.list[1] == 1<<64-1 {
+		return []uint64{}
+	} else {
+		return r.list
+	}
 }
