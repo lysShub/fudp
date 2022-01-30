@@ -247,61 +247,178 @@ var data []suit = []suit{
 		blocks: 2,
 		gaps:   5,
 	},
+	//
+	{
+		put:    []uint64{1, 9, 0, 0},
+		exp:    []uint64{0, 9},
+		blocks: 1,
+		gaps:   0,
+	},
+	{
+		put:    []uint64{1, 9, 0, 1},
+		exp:    []uint64{0, 9},
+		blocks: 1,
+		gaps:   0,
+	},
+	{
+		put:    []uint64{1, 9, 0, 5},
+		exp:    []uint64{0, 9},
+		blocks: 1,
+		gaps:   0,
+	},
+	{
+		put:    []uint64{1, 9, 0, 10},
+		exp:    []uint64{0, 10},
+		blocks: 1,
+		gaps:   0,
+	},
+	{
+		put:    []uint64{1, 9, 0, 15},
+		exp:    []uint64{0, 15},
+		blocks: 1,
+		gaps:   0,
+	},
+	{
+		put:    []uint64{1, 9, 1, 1},
+		exp:    []uint64{1, 9},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 1, 5},
+		exp:    []uint64{1, 9},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 1, 8},
+		exp:    []uint64{1, 9},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 1, 9},
+		exp:    []uint64{1, 9},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 1, 10},
+		exp:    []uint64{1, 10},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 1, 15},
+		exp:    []uint64{1, 15},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 5, 5},
+		exp:    []uint64{1, 9},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 5, 8},
+		exp:    []uint64{1, 9},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 5, 9},
+		exp:    []uint64{1, 9},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 5, 10},
+		exp:    []uint64{1, 10},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 5, 15},
+		exp:    []uint64{1, 15},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 8, 8},
+		exp:    []uint64{1, 9},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 8, 9},
+		exp:    []uint64{1, 9},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 8, 10},
+		exp:    []uint64{1, 10},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 8, 15},
+		exp:    []uint64{1, 15},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 9, 9},
+		exp:    []uint64{1, 9},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 9, 10},
+		exp:    []uint64{1, 10},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 9, 15},
+		exp:    []uint64{1, 15},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 10, 10},
+		exp:    []uint64{1, 10},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 10, 15},
+		exp:    []uint64{1, 15},
+		blocks: 1,
+		gaps:   1,
+	},
+	{
+		put:    []uint64{1, 9, 15, 15},
+		exp:    []uint64{1, 9, 15, 15},
+		blocks: 2,
+		gaps:   6,
+	},
+	{
+		put:    []uint64{1, 9, 15, 20},
+		exp:    []uint64{1, 9, 15, 20},
+		blocks: 2,
+		gaps:   6,
+	},
 
 	// base
-	{
-		put:    []uint64{0, 1372},
-		exp:    []uint64{0, 1372},
-		blocks: 1,
-		gaps:   0,
-	},
-	{
-		put:    []uint64{5, 1372},
-		exp:    []uint64{5, 1372},
-		blocks: 2,
-		gaps:   5,
-	},
-	{
-		put:    []uint64{1372, 0},
-		exp:    []uint64{},
-		blocks: 1,
-		gaps:   0,
-	},
-	{
-		put:    []uint64{1372, 5},
-		exp:    []uint64{},
-		blocks: 1,
-		gaps:   0,
-	},
 
-	// 两个block
-	{
-		put:    []uint64{5, 1372, 0, 2},
-		exp:    []uint64{0, 2, 5, 1372},
-		blocks: 2,
-		gaps:   2,
-	},
-	// {
-	// 	put:    []uint64{5, 1372, 0, 4},
-	// 	exp:    []uint64{0, 1372},
-	// 	blocks: 1,
-	// 	gaps:   1,
-	// },
-	{
-		put:    []uint64{5, 1372, 0, 5},
-		exp:    []uint64{0, 1372},
-		blocks: 1,
-		gaps:   0,
-	},
 }
 
 var firstSuit suit = suit{
-	// put: []uint64{1, 2, 4, 5, 0, 9},
-	// exp: []uint64{0, 9},
-	exp: []uint64{0, 2, 5, 1372},
-
-	put: []uint64{5, 1372, 0, 2},
+	put: []uint64{1, 9, 0, 0},
+	exp: []uint64{0, 9},
 
 	blocks: 1,
-	gaps:   2,
+	gaps:   0,
 }

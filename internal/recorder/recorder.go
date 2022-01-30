@@ -76,12 +76,13 @@ func (r *Recorder) Put(start, end uint64) {
 				}
 			}
 
-			// 没找到si，不可能， 只能是start > end和
+			// 找到ei没找到si的情况， 只能是start > end
+			// 和
 			// 已存在的最小值不为0，start 小于最小值
 			// 两种情况
 			si = 1
 			r.list[0] = start
-			goto mr
+			return
 		}
 	}
 
@@ -92,9 +93,13 @@ mr:
 			r.list = append(r.list, start, end)
 		} else {
 			// 最前面
-			r.list = append(r.list, 0, 0)
-			copy(r.list[2:], r.list[0:])
-			r.list[0], r.list[1] = start, end
+			if r.list[0]-end <= 1 {
+				r.list[0] = start
+			} else {
+				r.list = append(r.list, 0, 0)
+				copy(r.list[2:], r.list[0:])
+				r.list[0], r.list[1] = start, end
+			}
 		}
 	} else if si == ei {
 		return
