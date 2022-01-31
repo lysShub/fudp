@@ -25,13 +25,13 @@ func (r *Recorder) Put(start, end uint64) {
 		}
 	}()
 
-	// l := len(r.list)
+	l := len(r.list)
 	if start > end {
 		return
-	} else if start > r.list[len(r.list)-1] { // diff大于0
+	} else if start > r.list[l-1] { // diff大于0
 		// 绝大多数情况
-		if start-r.list[len(r.list)-1] == 1 {
-			r.list[len(r.list)-1] = end
+		if start-r.list[l-1] == 1 {
+			r.list[l-1] = end
 		} else {
 			r.list = append(r.list, start, end)
 		}
@@ -39,7 +39,7 @@ func (r *Recorder) Put(start, end uint64) {
 	}
 
 	var si, ei int = -1, -1 // block 索引位置
-	for i := len(r.list) - 1; i > 0; i = i - 2 {
+	for i := l - 1; i > 0; i = i - 2 {
 		if r.list[i-1] <= end {
 
 			// 新的的尾在此block有交集
@@ -48,10 +48,10 @@ func (r *Recorder) Put(start, end uint64) {
 				r.list[i] = end // 吞并 swallow
 			}
 			ei = i
-			if i+2 <= len(r.list)-1 && r.list[i+1]-r.list[i] <= 1 {
+			if i+2 <= l-1 && r.list[i+1]-r.list[i] <= 1 {
 				// 需要邻块合并
 				n := copy(r.list[i:], r.list[i+2:])
-				r.list = r.list[:i+n]
+				l, r.list = i+n, r.list[:i+n]
 			}
 			// 找到ei了
 
@@ -71,7 +71,7 @@ func (r *Recorder) Put(start, end uint64) {
 						si, ei = si-2, ei-2
 						r.list[i] = r.list[i+2]
 						n := copy(r.list[i:], r.list[i+2:])
-						r.list = r.list[:i+n]
+						l, r.list = i+n, r.list[:i+n]
 					}
 
 					goto mr // 可以合并
@@ -89,7 +89,7 @@ func (r *Recorder) Put(start, end uint64) {
 
 mr:
 	if si == -1 && ei == -1 {
-		if end > r.list[len(r.list)-1] {
+		if end > r.list[l-1] {
 			// 最后追加 不可能运行到
 			r.list = append(r.list, start, end)
 		} else {
