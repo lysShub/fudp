@@ -25,6 +25,7 @@ func (r *Recorder) Put(start, end uint64) {
 		}
 	}()
 
+	// l := len(r.list)
 	if start > end {
 		return
 	} else if start > r.list[len(r.list)-1] { // diff大于0
@@ -77,10 +78,7 @@ func (r *Recorder) Put(start, end uint64) {
 				}
 			}
 
-			// 找到ei没找到si的情况， 只能是start > end
-			// 和
-			// 已存在的最小值不为0，start 小于最小值
-			// 两种情况
+			// 除了第一个block，检查了所有的block; 没有找到
 			si = 1
 			if r.list[0] > start {
 				r.list[0] = start
@@ -92,7 +90,7 @@ func (r *Recorder) Put(start, end uint64) {
 mr:
 	if si == -1 && ei == -1 {
 		if end > r.list[len(r.list)-1] {
-			// 最后追加
+			// 最后追加 不可能运行到
 			r.list = append(r.list, start, end)
 		} else {
 			// 最前面
@@ -111,7 +109,6 @@ mr:
 		n := copy(r.list[si:], r.list[ei:])
 		r.list = r.list[:si+n]
 	}
-
 }
 
 func (r *Recorder) Blocks() uint64 {

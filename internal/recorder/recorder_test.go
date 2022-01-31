@@ -516,11 +516,17 @@ var data []suit = []suit{
 		blocks: 3,
 		gaps:   4,
 	},
+	{
+		put:    []uint64{5, 10, 1, 3},
+		exp:    []uint64{1, 3, 5, 10},
+		blocks: 2,
+		gaps:   2,
+	},
 }
 
 var firstSuit suit = suit{
-	put:    []uint64{1, 5, 8, 11, 15, 18, 13, 16},
-	exp:    []uint64{1, 5, 8, 11, 13, 18},
-	blocks: 1,
-	gaps:   0,
+	// put:    []uint64{1, 2, 5, 10, 4, 11},
+	// exp:    []uint64{1, 2, 4, 11},
+	blocks: 2,
+	gaps:   2,
 }
