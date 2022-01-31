@@ -60,9 +60,8 @@ func (r *Recorder) Put(start, end uint64) {
 
 					// 插入的头在此block有交集
 					// 取两个头的最小值
-					// if start <= r.list[i-1]-1 {
 					if start < r.list[i-1] {
-						r.list[i-1] = start
+						r.list[i-1] = start // 不可能执行到此处
 					}
 					si = i
 					if i-3 >= 0 && r.list[i-1]-r.list[i-2] <= 1 {
@@ -82,7 +81,7 @@ func (r *Recorder) Put(start, end uint64) {
 			// 两种情况
 			si = 1
 			r.list[0] = start
-			return
+			goto mr
 		}
 	}
 

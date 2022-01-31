@@ -411,14 +411,116 @@ var data []suit = []suit{
 		gaps:   6,
 	},
 
-	// base
+	// 三个block 跨block
+	{
+		put:    []uint64{5, 9, 15, 20, 0, 4},
+		exp:    []uint64{0, 9, 15, 20},
+		blocks: 2,
+		gaps:   5,
+	},
+	{
+		put:    []uint64{5, 9, 15, 20, 0, 4},
+		exp:    []uint64{0, 9, 15, 20},
+		blocks: 2,
+		gaps:   5,
+	},
+	{
+		put:    []uint64{5, 9, 15, 20, 0, 5},
+		exp:    []uint64{0, 9, 15, 20},
+		blocks: 2,
+		gaps:   5,
+	},
+	{
+		put:    []uint64{5, 9, 15, 20, 0, 6},
+		exp:    []uint64{0, 9, 15, 20},
+		blocks: 2,
+		gaps:   5,
+	},
+	{
+		put:    []uint64{5, 9, 15, 20, 0, 9},
+		exp:    []uint64{0, 9, 15, 20},
+		blocks: 2,
+		gaps:   5,
+	},
+	{
+		put:    []uint64{5, 9, 15, 20, 0, 10},
+		exp:    []uint64{0, 10, 15, 20},
+		blocks: 2,
+		gaps:   4,
+	},
+	{
+		put:    []uint64{5, 9, 15, 20, 0, 12},
+		exp:    []uint64{0, 12, 15, 20},
+		blocks: 2,
+		gaps:   2,
+	},
+	{
+		put:    []uint64{5, 9, 15, 20, 0, 12},
+		exp:    []uint64{0, 12, 15, 20},
+		blocks: 2,
+		gaps:   2,
+	},
+	{
+		put:    []uint64{5, 9, 15, 20, 0, 14},
+		exp:    []uint64{0, 20},
+		blocks: 1,
+		gaps:   0,
+	},
+	{
+		put:    []uint64{5, 9, 15, 20, 0, 15},
+		exp:    []uint64{0, 20},
+		blocks: 1,
+		gaps:   0,
+	},
+	{
+		put:    []uint64{5, 9, 15, 20, 0, 16},
+		exp:    []uint64{0, 20},
+		blocks: 1,
+		gaps:   0,
+	},
+	{
+		put:    []uint64{5, 9, 15, 20, 0, 19},
+		exp:    []uint64{0, 20},
+		blocks: 1,
+		gaps:   0,
+	},
+	{
+		put:    []uint64{5, 9, 15, 20, 0, 20},
+		exp:    []uint64{0, 20},
+		blocks: 1,
+		gaps:   0,
+	},
+	{
+		put:    []uint64{5, 9, 15, 20, 0, 21},
+		exp:    []uint64{0, 21},
+		blocks: 1,
+		gaps:   0,
+	},
 
+	// 特殊情况
+	{
+		put:    []uint64{5, 9, 11, 15, 17, 18, 10, 16},
+		exp:    []uint64{5, 18},
+		blocks: 1,
+		gaps:   5,
+	},
+	{
+		put:    []uint64{1, 9, 11, 15, 17, 18, 10, 16, 0, 0},
+		exp:    []uint64{0, 18},
+		blocks: 1,
+		gaps:   0,
+	},
+	{
+		put:    []uint64{1, 5, 8, 11, 15, 18, 13, 16},
+		exp:    []uint64{1, 5, 8, 11, 13, 18},
+		blocks: 3,
+		gaps:   4,
+	},
 }
 
 var firstSuit suit = suit{
-	put: []uint64{1, 9, 0, 0},
-	exp: []uint64{0, 9},
-
+	put:    []uint64{5, 9, 15, 20, 0, 15},
+	exp:    []uint64{0, 20},
 	blocks: 1,
 	gaps:   0,
 }
