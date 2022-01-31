@@ -2,6 +2,7 @@ package sconn_test
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"net"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func TestSconn(t *testing.T) {
 		conn, err := net.DialUDP("udp", &net.UDPAddr{Port: 19986}, &net.UDPAddr{Port: 19987})
 		require.Nil(t, err)
 		sconn := sconn.NewSconn(conn)
-		tconn := tls.Server(sconn, &tls.Config{Certificates: []tls.Certificate{cert}})
+		tconn := tls.Server(sconn, &tls.Config{ClientAuth: tls.NoClientCert, Certificates: []tls.Certificate{cert}})
 		defer tconn.Close()
 
 		err = tconn.Handshake()
@@ -69,16 +70,19 @@ func handleFunc(conn net.Conn, t *testing.T) {
 }
 
 func client(t *testing.T) {
-
 	conn, err := net.DialUDP("udp", &net.UDPAddr{Port: 19987}, &net.UDPAddr{Port: 19986})
 	require.Nil(t, err)
 	sconn := sconn.NewSconn(conn)
 
+	p := x509.NewCertPool()
+	require.Equal(t, true, p.AppendCertsFromPEM([]byte(cert)))
 	tconn := tls.Client(sconn, &tls.Config{
-		InsecureSkipVerify: true,
+		InsecureSkipVerify: false,
 		CipherSuites: []uint16{
 			tls.TLS_AES_128_GCM_SHA256,
 		},
+		ServerName: "localhost",
+		RootCAs:    p,
 	})
 
 	err = tconn.Handshake()
@@ -95,5 +99,4 @@ func client(t *testing.T) {
 	require.Equal(t, 12, n)
 	require.Nil(t, err)
 	require.Equal(t, []byte("hello world!"), da[:n])
-
 }
