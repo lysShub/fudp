@@ -56,19 +56,21 @@ func (r *Recorder) Put(start, end uint64) {
 
 			// 开始找si
 			for i = i + 0; i > 0; i = i - 2 {
-				if r.list[i-1] <= start { // 有大遍历到小,
+				// if r.list[i-1] <= start { // 有大遍历到小,
+				if r.list[i] < start { // 有大遍历到小,
 
 					// 插入的头在此block有交集
 					// 取两个头的最小值
-					if start < r.list[i-1] {
-						r.list[i-1] = start // 不可能执行到此处
+					if start < r.list[i+1] {
+						r.list[i+1] = start // 不可能执行到此处
 					}
-					si = i
-					if i-3 >= 0 && r.list[i-1]-r.list[i-2] <= 1 {
+					si = i + 2
+					if r.list[i+1]-r.list[i] <= 1 {
 						// 需要邻块合并
 						si, ei = si-2, ei-2
-						n := copy(r.list[i-2:], r.list[i:])
-						r.list = r.list[:i-2+n]
+						r.list[i] = r.list[i+2]
+						n := copy(r.list[i:], r.list[i+2:])
+						r.list = r.list[:i+n]
 					}
 
 					goto mr // 可以合并
@@ -80,7 +82,9 @@ func (r *Recorder) Put(start, end uint64) {
 			// 已存在的最小值不为0，start 小于最小值
 			// 两种情况
 			si = 1
-			r.list[0] = start
+			if r.list[0] > start {
+				r.list[0] = start
+			}
 			goto mr
 		}
 	}
