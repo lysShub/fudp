@@ -20,6 +20,9 @@ const HandshakeTimeout time.Duration = time.Millisecond * 400
 // RTT 数据包往返时间, 及PING的时间
 const RTT = time.Millisecond * 250
 
+// 加密位数
+const SIZE = 16
+
 // 证书模板
 var CertTemplate = x509.Certificate{
 	SerialNumber: big.NewInt(int64(0)), // CA颁发证书对应的唯一序列号，自签填个随机数即可
