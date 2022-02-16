@@ -18,10 +18,10 @@ func main() {
 
 var mtu int = 1300
 var sAddr = net.UDPAddr{IP: net.ParseIP("103.79.76.46"), Port: 19986}
-var windowSize int = 1
 
 func client() {
-	go recorder()
+	var windowSize int = 1
+	go recorder(&windowSize)
 
 	conn, err := net.DialUDP("udp", nil, &sAddr)
 	if err != nil {
@@ -61,6 +61,7 @@ func client() {
 				c.Add(uint64(n))
 			}
 		}
+
 		if n, err := conn.Read(rda); err != nil {
 			panic(err)
 		} else if n >= 8 {
@@ -79,7 +80,10 @@ func client() {
 	遇到乱序、丢包时, 获得的包序号与期望的包序号的差的绝对值为diff,
 	1. 当发生一对顺序交换时, WindowSize减1, 当发生n个顺序交换时WindowSize减2n; 但是不立即echo，把diff累计起来, 直到累计值达到5%当前WindowSize时才echo
 
-
+  fix:
+	由于echo可能丢失，丢失后会导致发送速度将为10KB/s, 直到以此速度发送完当前windowSize的容量
+	改进方法：1. 取消发送方异步固定发送。2. echo在低速时每个数据包都回复, 高速时间隔性回复
+	         3. 发送方在等待echo时设置超时，超时时长时2倍上一次没有超时echo的时长；如果等待超时则继续以上一次windowSize发送
 */
 func server() {
 	var rda = make([]byte, mtu)
@@ -102,17 +106,26 @@ func server() {
 
 				copy(tmp[:], rda[0:])
 				i := *(*int)(unsafe.Pointer(&tmp))
-				if i-int(imax.Load()) > 1 {
+				if d := i - int(imax.Load()); d > 0 {
 					imax.Store(int64(i))
-					diff += (i - windowSize) * 2
-					if diff > 16 || diff*10 > windowSize {
-						windowSize -= diff
-						diff = 0
-						goto echo // echo
+
+					if d > 1 {
+						diff += d * 2
+						if diff > 16 || diff*10 > windowSize {
+							ts := windowSize - diff
+							if ts < 0 || ts*2 > windowSize {
+								windowSize = windowSize / 2
+							} else {
+								windowSize -= ts
+							}
+							if windowSize < 0 {
+								windowSize = 1
+							}
+							diff = 0
+							goto echo // echo
+						}
 					}
 				}
-				imax.Store(int64(i))
-
 			}
 		}
 
@@ -120,21 +133,21 @@ func server() {
 	echo:
 		tmp = *(*[8]byte)(unsafe.Pointer(&windowSize))
 		if _, err := conn.WriteToUDP(tmp[:], raddr); err != nil {
+			fmt.Println(windowSize)
 			panic(err)
 		}
-
+		fmt.Printf("%v \r", windowSize)
 		logHandle.Write(append([]byte(strconv.Itoa(int(windowSize))), 10))
-
 	}
 }
 
 var c atomic.Uint64
 
-func recorder() {
+func recorder(w *int) {
 	for {
 		time.Sleep(time.Second)
 		s := c.Load()
-		fmt.Printf("%s/s  %v \r", formatMemused(s), windowSize)
+		fmt.Printf("%s/s  %v \r", formatMemused(s), *w)
 		c.Store(0)
 	}
 }

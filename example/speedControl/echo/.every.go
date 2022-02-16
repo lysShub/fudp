@@ -6,26 +6,22 @@ import (
 	"net"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 	"unsafe"
 
 	"go.uber.org/atomic"
 )
 
-var mtu int = 1300
-var sAddr = net.UDPAddr{IP: net.ParseIP(""), Port: 19986}
-var c atomic.Uint64
-var blockSize int = 64
-
 func main() {
-
+	client()
 }
 
-//
+var mtu int = 1300
+var sAddr = net.UDPAddr{IP: net.ParseIP("103.79.76.46"), Port: 19986}
 
 func client() {
-	go recorder()
+	var windowSize int = 1
+	go recorder(&windowSize)
 
 	conn, err := net.DialUDP("udp", nil, &sAddr)
 	if err != nil {
@@ -33,81 +29,122 @@ func client() {
 	}
 
 	var da = make([]byte, mtu)
+	var rda = make([]byte, mtu)
 	rand.Read(da)
+	var cc atomic.Int64 = *atomic.NewInt64(0)
+
 	go func() {
-		for i := 0; ; i++ {
-			// 发送
-			copy(da[0:], (*(*[8]byte)(unsafe.Pointer(&i)))[:])
-			if _, err := conn.Write(da); err != nil {
+		sda := make([]byte, len(da))
+		copy(sda, da)
+
+		for {
+			in := cc.Add(1) - 1
+			copy(sda[0:], (*(*[8]byte)(unsafe.Pointer(&(in))))[:])
+
+			if n, err := conn.Write(sda); err != nil {
 				panic(err)
+			} else {
+				c.Add(uint64(n))
 			}
-			c.Add(1)
+			time.Sleep(time.Millisecond * 100)
 		}
 	}()
 
-	var rda = make([]byte, mtu)
-	var t [8]byte
-	var cc int
-	if n, err := conn.Read(rda); err != nil {
-		panic(err)
-	} else if n >= 2 {
-		// 第一字节是0表示echo, 是1表示重发
-		if rda[0] == 0 {
-			t = [8]byte{}
-			copy(t[0:], rda[1:n])
-			cc = *(*int)(unsafe.Pointer(&t))
-			fmt.Println(cc)
-		} else if rda[0] == 1 {
-			for j := 1; j < n-8; j = j + 8 {
-				copy(da[0:], (*(*[8]byte)(unsafe.Pointer(&j)))[:])
-				if _, err := conn.Write(da); err != nil {
-					panic(err)
-				}
-				c.Add(1)
+	var tmp [8]byte = [8]byte{}
+	for {
+		for i := 0; i < windowSize; i++ {
+			in := cc.Add(1) - 1
+			copy(da[0:], (*(*[8]byte)(unsafe.Pointer(&(in))))[:])
+			if n, err := conn.Write(da); err != nil {
+				panic(err)
+			} else {
+				c.Add(uint64(n))
 			}
+		}
+
+		if n, err := conn.Read(rda); err != nil {
+			panic(err)
+		} else if n >= 8 {
+			copy(tmp[0:], rda[0:])
+			windowSize = *(*int)(unsafe.Pointer(&tmp))
 		}
 	}
 }
 
-func Server() {
+/*
+  什么时候echo:
+	当前WindowSize为n时，当读取了n个数据包时发送新的echo
+	当遇到foo时发送新的echo
+
+  foo情况:
+	遇到乱序、丢包时, 获得的包序号与期望的包序号的差的绝对值为diff,
+	1. 当发生一对顺序交换时, WindowSize减1, 当发生n个顺序交换时WindowSize减2n; 但是不立即echo，把diff累计起来, 直到累计值达到5%当前WindowSize时才echo
+
+
+*/
+func server() {
 	var rda = make([]byte, mtu)
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: sAddr.Port})
 	if err != nil {
 		panic(err)
 	}
-
-	var c atomic.Int64 = atomic.Int64{}
-	var t [8]byte = [8]byte{}
+	var imax atomic.Int64 = *atomic.NewInt64(0)
+	var windowSize int = 1
+	var diff int
+	var tmp [8]byte = [8]byte{}
 	for {
-		if n, raddr, err := conn.ReadFromUDP(rda); err == nil {
-			panic(err)
-		} else if n >= 8 {
-			c.Add(1)
-			copy(t[:], rda[0:])
-			in := *(*int)(unsafe.Pointer(&t))
-			fmt.Println(in, raddr)
+		var n int
+		var raddr *net.UDPAddr
+		var err error
+		for i := 0; i < windowSize; i++ {
+			if n, raddr, err = conn.ReadFromUDP(rda); err != nil {
+				panic(err)
+			} else if n >= 8 {
+
+				copy(tmp[:], rda[0:])
+				i := *(*int)(unsafe.Pointer(&tmp))
+				if d := i - int(imax.Load()); d > 0 {
+					imax.Store(int64(i))
+
+					if d > 1 {
+						diff += d * 2
+						if diff > 16 || diff*10 > windowSize {
+							ts := windowSize - diff
+							if ts < 0 || ts*2 > windowSize {
+								windowSize = windowSize / 2
+							} else {
+								windowSize -= ts
+							}
+							if windowSize < 0 {
+								windowSize = 1
+							}
+							diff = 0
+							goto echo // echo
+						}
+					}
+				}
+			}
 		}
-	}
 
+		windowSize += 1
+	echo:
+		tmp = *(*[8]byte)(unsafe.Pointer(&windowSize))
+		if _, err := conn.WriteToUDP(tmp[:], raddr); err != nil {
+			fmt.Println(windowSize)
+			panic(err)
+		}
+		fmt.Printf("%v \r", windowSize)
+		logHandle.Write(append([]byte(strconv.Itoa(int(windowSize))), 10))
+	}
 }
 
-var logHandle *os.File
+var c atomic.Uint64
 
-func init() {
-	var err error
-	logHandle, err = os.OpenFile("./speed.log", os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0666)
-	if err != nil {
-		panic(err)
-	}
-}
-
-func recorder() {
+func recorder(w *int) {
 	for {
 		time.Sleep(time.Second)
-		s := c.Load() * uint64(mtu)
-		fmt.Printf("%s \r", formatMemused(s))
-
-		logHandle.Write(append([]byte(strconv.Itoa(int(s))), 10))
+		s := c.Load()
+		fmt.Printf("%s/s  %v \r", formatMemused(s), *w)
 		c.Store(0)
 	}
 }
@@ -125,80 +162,12 @@ func formatMemused(b uint64) string {
 	return fmt.Sprintf("%.1f%cB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-type spin struct {
-	// put、get操作应该是事务性的，但现在不是；
-	// 因为结合当前业务, 即使错过了阻塞释放，立马还有下一次机会
-	block chan struct{}
-	len   atomic.Int64
-}
+var logHandle *os.File
 
-func NewSpin() *spin {
-	return &spin{
-		block: make(chan struct{}),
-		len:   atomic.Int64{},
+func init() {
+	var err error
+	logHandle, err = os.OpenFile("./speed.log", os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0666)
+	if err != nil {
+		panic(err)
 	}
 }
-
-func (s *spin) get() {
-	if s.len.CAS(0, 0) {
-		<-s.block
-	} else {
-		s.len.Add(-1)
-	}
-}
-
-func (s *spin) put(n int) {
-	if s.len.CAS(0, 0) {
-		s.block <- struct{}{}
-		s.len.Add(int64(n - 1))
-	} else {
-		s.len.Add(int64(n))
-	}
-}
-
-type loss struct {
-	m map[int]struct{}
-	// r    []int
-	maxi atomic.Uint64
-	sync.RWMutex
-}
-
-func NewLoss() *loss {
-	return &loss{
-		m: make(map[int]struct{}, 64),
-		// r:    make([]int, 0, 128),
-
-		maxi: *atomic.NewUint64(1<<64 - 1),
-	}
-}
-
-func (l *loss) put(n int) {
-	if l.maxi.CAS(uint64(n)-1, uint64(n)) {
-		return
-	} else {
-		if uint64(n) > l.maxi.Load() { // append
-			l.Lock()
-			for i := int(l.maxi.Load()) + 1; i < n; i++ {
-				l.m[i] = struct{}{}
-			}
-		} else {
-			delete(l.m, n)
-		}
-	}
-}
-
-func (l *loss) loss() []byte {
-	max := int(l.maxi.Load())
-
-	for k, _ := range l.m {
-		if k+blockSize < max-1 {
-
-		}
-	}
-
-	return nil
-}
-
-/*
-  每个数据包都回声，收到一次回声后才能发送一个数据包
-*/
