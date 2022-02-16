@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// make UDP conn to stream-conn.
-// for TLS
+// 将UDP Conn转换为流式Conn, 为了TLS基于UDP
+
 type sconn struct {
 	conn net.Conn
 

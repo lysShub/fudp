@@ -24,7 +24,7 @@ type fudp struct {
 
 	// Server处理函数, 也可以全局路由注册
 	// stateCode 遵从HTTP STATE CODE,
-	handleFn func(url *url.URL) (path string, stateCode int)
+	handleFn Handler
 
 	// 工作路径
 	// 提供下载服务时, 是文件在本机磁盘的路径

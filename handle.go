@@ -1,6 +1,7 @@
 package fudp
 
 // handle function
+// 暂时仅实现完全匹配
 
 import (
 	"errors"
@@ -22,9 +23,7 @@ func Handle(pattern string) Handler {
 }
 
 // path 磁盘路径
-// stateCode 状态码, 参考HTTP
-// msg 回复信息, 此信息不会加密
-// 当path不为空时表示接受请求, 将继续通信
+// path为Server机器上文件路径
 type Handler func(url *url.URL) (path string, stateCode int)
 
 // 现在只实现了完全匹配

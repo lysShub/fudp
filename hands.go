@@ -15,8 +15,8 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"path"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/lysShub/fudp/constant"
@@ -40,7 +40,7 @@ func (f *fudp) handPing(selfRootCa []*x509.Certificate) (stateCode uint16, err e
 	if err := f.genKeyAndgcm(); err != nil {
 		return 0, err
 	}
-	if f.isCS() {
+	if f.isCSClient() {
 		if n, err := packet.Pack(da[:0:cap(da)], 0, 0, 0, nil); err != nil {
 			return 0, err
 		} else {
@@ -53,7 +53,7 @@ func (f *fudp) handPing(selfRootCa []*x509.Certificate) (stateCode uint16, err e
 			return 0, err
 		}
 
-	} else if f.isP2P() {
+	} else if f.isP2PClient() {
 		n := copy(da[0:], f.key[:])
 		if n, err := packet.Pack(da[0:n:cap(da)], 0, 0, 0, f.gcm); err != nil {
 			return 0, err
@@ -108,13 +108,14 @@ func (f *fudp) handPing(selfRootCa []*x509.Certificate) (stateCode uint16, err e
 	}
 }
 
+// handPong 接受握手
 func (f *fudp) handPong() (err error) {
 
-	if f.isP2P() { // key不为空
+	if f.isP2PServer() {
 		if err = f.pongP2PSwapKey(); err != nil {
 			return err
 		}
-	} else if f.isCS() {
+	} else if f.isCSServer() {
 		if err = f.pongCSSwapKey(); err != nil {
 			return err
 		}
@@ -162,21 +163,14 @@ func (f *fudp) handPong() (err error) {
 		rPath, statueCode = f.handleFn(f.url)
 	} else {
 		if fn := Handle(f.url.Path); fn == nil {
-			rPath, statueCode = "", http.StatusNotFound
+			rPath, statueCode = "", http.StatusNotFound // 不存在此路由
 		} else {
 			rPath, statueCode = fn(f.url)
 		}
 	}
-	if !path.IsAbs(rPath) {
-		rPath = path.Join(f.wpath, rPath) // f.path默认值为根路径
-		if !path.IsAbs(rPath) {
-			rPath, err = filepath.Abs(rPath)
-			if err != nil {
-				return err
-			}
-		}
+	if f.wpath, err = filepath.Abs(rPath); err != nil {
+		rPath, statueCode = "", http.StatusInternalServerError
 	}
-	f.wpath = rPath
 
 	// 回复 握手包3
 	da[0], da[1] = byte(statueCode), byte(statueCode>>8)
@@ -191,25 +185,23 @@ func (f *fudp) handPong() (err error) {
 	if statueCode/100 == 2 {
 		return nil
 	}
-	return errors.New(" ")
+	return errors.New("Status Code " + strconv.Itoa(statueCode))
 }
 
-func (f *fudp) isP2P() bool    { return f.tlsCfg == nil }
-func (f *fudp) isCS() bool     { return f.tlsCfg != nil }
-func (f *fudp) isServer() bool { return f.tlsCfg != nil || f.key != [constant.SIZE]byte{} }
-func (f *fudp) isClient() bool { return f.tlsCfg == nil }
-
-func (f *fudp) bCheckP2PClient() bool {
+func (f *fudp) isP2PClient() bool {
 	return f.rawConn != nil && f.url != nil && f.key != [constant.SIZE]byte{} && f.gcm != nil && f.handleFn == nil && f.tlsCfg == nil
 }
-func (f *fudp) bCheckP2PServer() bool {
+func (f *fudp) isP2PServer() bool {
 	return f.rawConn != nil && f.url == nil && f.key != [constant.SIZE]byte{} && f.gcm != nil && f.tlsCfg == nil
 }
-func (f *fudp) bCheckCSClient() bool {
-	return f.rawConn != nil && f.url != nil && f.key == [constant.SIZE]byte{} && f.gcm == nil && f.tlsCfg == nil
+func (f *fudp) isCSClient() bool {
+	return f.rawConn != nil && f.url != nil && f.key == [constant.SIZE]byte{} && f.gcm == nil && f.handleFn == nil && f.tlsCfg == nil
 }
-func (f *fudp) bCheckCSServer() bool { return false }
+func (f *fudp) isCSServer() bool {
+	return f.rawConn != nil && f.url == nil && f.key == [constant.SIZE]byte{} && f.gcm == nil && f.tlsCfg != nil
+}
 
+// expHandPackage 判断是否时期望的数据包, 返回-1表示不是期望的数据包
 func (f *fudp) expHandPackage(packageIndex int, da []byte) int {
 	len, fi, bi, pt, err := packet.Parse(da, f.gcm)
 	if (err == nil) && (len == 0 && fi == uint32(packageIndex) && bi == 0 && pt == 0) {
@@ -292,7 +284,10 @@ func (f *fudp) pongCSSwapKey() (err error) {
 	if err := tconn.SetDeadline(time.Now().Add(constant.RTT << 3)); err != nil {
 		return err
 	}
-	tconn.Handshake()
+	if err = tconn.Handshake(); err != nil {
+		return err
+	}
+
 	if err = f.pongSwapSecertOverTLS(); err != nil {
 		return err
 	}
