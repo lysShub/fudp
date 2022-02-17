@@ -6,13 +6,12 @@ package fudp
 */
 
 import (
-	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -20,7 +19,7 @@ import (
 	"time"
 
 	"github.com/lysShub/fudp/constant"
-	"github.com/lysShub/fudp/internal/sconn"
+	"github.com/lysShub/fudp/internal/utls"
 	"github.com/lysShub/fudp/packet"
 )
 
@@ -33,14 +32,20 @@ const mcap = constant.MTU + packet.Append
 
 // handPing 主动握手
 // selfRootCa:	CS模式时, 使用自签证书需要设置
-func (f *fudp) handPing(selfRootCa []*x509.Certificate) (stateCode uint16, err error) {
-	defer func() { f.rawConn.SetReadDeadline(time.Time{}) }()
+func (f *fudp) handPing(selfRootCa ...*x509.Certificate) (stateCode uint16, err error) {
+	defer func() {
+		f.rawConn.SetDeadline(time.Time{})
+		if e := recover(); e != nil {
+			err = errors.New("unknown error")
+		}
+	}()
+	defer func() { f.rawConn.SetDeadline(time.Time{}) }()
 	var da []byte = make([]byte, mcap)
 
 	if err := f.genKeyAndgcm(); err != nil {
 		return 0, err
 	}
-	if f.isCSClient() {
+	if f.isClient && !f.isP2P {
 		if n, err := packet.Pack(da[:0:cap(da)], 0, 0, 0, nil); err != nil {
 			return 0, err
 		} else {
@@ -49,11 +54,10 @@ func (f *fudp) handPing(selfRootCa []*x509.Certificate) (stateCode uint16, err e
 			}
 		}
 		// tls 交换密钥
-		if err := f.pingSwapSecertOverTLS(selfRootCa); err != nil {
+		if err = utls.Client(f.rawConn, f.key, f.url.Hostname(), selfRootCa...); err != nil {
 			return 0, err
 		}
-
-	} else if f.isP2PClient() {
+	} else if f.isClient && f.isP2P {
 		n := copy(da[0:], f.key[:])
 		if n, err := packet.Pack(da[0:n:cap(da)], 0, 0, 0, f.gcm); err != nil {
 			return 0, err
@@ -66,7 +70,7 @@ func (f *fudp) handPing(selfRootCa []*x509.Certificate) (stateCode uint16, err e
 		return 0, errors.New("unknown work mode")
 	}
 
-	// wait pong 读取数据包1
+	// wait pong 读取握手包1
 	var n int
 	if err = f.rawConn.SetReadDeadline(time.Now().Add(constant.RTT * 2)); err != nil {
 		return 0, err
@@ -79,6 +83,9 @@ func (f *fudp) handPing(selfRootCa []*x509.Certificate) (stateCode uint16, err e
 				break
 			}
 		}
+	}
+	if err = f.rawConn.SetReadDeadline(time.Time{}); err != nil {
+		return 0, err
 	}
 	// 密钥交换完成, 剩余握手流程相同。此时、无论模式, 双方的key不为空, 且gcm被初始化
 
@@ -110,12 +117,17 @@ func (f *fudp) handPing(selfRootCa []*x509.Certificate) (stateCode uint16, err e
 
 // handPong 接受握手
 func (f *fudp) handPong() (err error) {
+	defer func() {
+		if e := recover(); e != nil {
+			err = errors.New("unknown error")
+		}
+	}()
 
-	if f.isP2PServer() {
+	if !f.isClient && f.isP2P {
 		if err = f.pongP2PSwapKey(); err != nil {
 			return err
 		}
-	} else if f.isCSServer() {
+	} else if !f.isClient && !f.isP2P {
 		if err = f.pongCSSwapKey(); err != nil {
 			return err
 		}
@@ -134,6 +146,7 @@ func (f *fudp) handPong() (err error) {
 		return err
 	} else {
 		if _, err = f.rawConn.Write(da[:n]); err != nil {
+			fmt.Println(err.Error())
 			return err
 		}
 	}
@@ -141,7 +154,7 @@ func (f *fudp) handPong() (err error) {
 	var statueCode int // 状态码
 
 	// 读取握手包2
-	if err := f.rawConn.SetReadDeadline(time.Now().Add(constant.RTT << 1)); err != nil {
+	if err = f.rawConn.SetReadDeadline(time.Now().Add(constant.RTT << 1)); err != nil {
 		return err
 	}
 	for {
@@ -151,25 +164,29 @@ func (f *fudp) handPong() (err error) {
 			if len := f.expHandPackage(2, da[:n:cap(da)]); len > 0 {
 				if f.url, err = url.Parse(string(da[:len])); err != nil {
 					statueCode = http.StatusBadRequest
+				} else {
+					// handle func
+					var rPath string
+					if f.handleFn != nil {
+						rPath, statueCode = f.handleFn(f.url)
+					} else {
+						if fn := Handle(f.url.Path); fn == nil {
+							rPath, statueCode = "", http.StatusNotFound // 不存在此路由
+						} else {
+							rPath, statueCode = fn(f.url)
+						}
+					}
+					if f.wpath, err = filepath.Abs(rPath); err != nil {
+						rPath, statueCode = "", http.StatusInternalServerError
+					}
+
 				}
 				break
 			}
 		}
 	}
-
-	// handle
-	var rPath string
-	if f.handleFn != nil {
-		rPath, statueCode = f.handleFn(f.url)
-	} else {
-		if fn := Handle(f.url.Path); fn == nil {
-			rPath, statueCode = "", http.StatusNotFound // 不存在此路由
-		} else {
-			rPath, statueCode = fn(f.url)
-		}
-	}
-	if f.wpath, err = filepath.Abs(rPath); err != nil {
-		rPath, statueCode = "", http.StatusInternalServerError
+	if err = f.rawConn.SetReadDeadline(time.Time{}); err != nil {
+		return err
 	}
 
 	// 回复 握手包3
@@ -186,25 +203,31 @@ func (f *fudp) handPong() (err error) {
 		return nil
 	}
 	return errors.New("Status Code " + strconv.Itoa(statueCode))
+
 }
 
-func (f *fudp) isP2PClient() bool {
-	return f.rawConn != nil && f.url != nil && f.key != [constant.SIZE]byte{} && f.gcm != nil && f.handleFn == nil && f.tlsCfg == nil
-}
-func (f *fudp) isP2PServer() bool {
-	return f.rawConn != nil && f.url == nil && f.key != [constant.SIZE]byte{} && f.gcm != nil && f.tlsCfg == nil
-}
-func (f *fudp) isCSClient() bool {
-	return f.rawConn != nil && f.url != nil && f.key == [constant.SIZE]byte{} && f.gcm == nil && f.handleFn == nil && f.tlsCfg == nil
-}
-func (f *fudp) isCSServer() bool {
-	return f.rawConn != nil && f.url == nil && f.key == [constant.SIZE]byte{} && f.gcm == nil && f.tlsCfg != nil
+// genKeyAndgcm 如果密钥为空则生成密钥; 并且初始化gcm实例
+func (f *fudp) genKeyAndgcm() error {
+	if tk := [16]byte{}; tk == f.key {
+		if _, err := rand.Read(f.key[:]); err != nil {
+			return err
+		}
+	}
+
+	if block, err := aes.NewCipher(f.key[:]); err != nil {
+		return err
+	} else {
+		if f.gcm, err = cipher.NewGCM(block); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // expHandPackage 判断是否时期望的数据包, 返回-1表示不是期望的数据包
 func (f *fudp) expHandPackage(packageIndex int, da []byte) int {
 	len, fi, bi, pt, err := packet.Parse(da, f.gcm)
-	if (err == nil) && (len == 0 && fi == uint32(packageIndex) && bi == 0 && pt == 0) {
+	if (err == nil) && (fi == uint32(packageIndex) && bi == 0 && pt == 0) {
 		return int(len)
 	}
 	return -1
@@ -212,9 +235,6 @@ func (f *fudp) expHandPackage(packageIndex int, da []byte) int {
 
 // pongP2PSwapKey server P2P模式交换密钥
 func (f *fudp) pongP2PSwapKey() (err error) {
-	if tk := [16]byte{}; f.key == tk {
-		return errors.New("传输密钥不能为空")
-	}
 	if f.gcm == nil {
 		if block, err := aes.NewCipher(f.key[:]); err != nil {
 			return err
@@ -225,7 +245,7 @@ func (f *fudp) pongP2PSwapKey() (err error) {
 		}
 	}
 	defer func() {
-		if e := f.rawConn.SetReadDeadline(time.Time{}); e != nil {
+		if e := f.rawConn.SetDeadline(time.Time{}); e != nil {
 			err = e
 		}
 	}()
@@ -256,7 +276,7 @@ func (f *fudp) pongP2PSwapKey() (err error) {
 
 func (f *fudp) pongCSSwapKey() (err error) {
 	defer func() {
-		if e := f.rawConn.SetReadDeadline(time.Time{}); e != nil {
+		if e := f.rawConn.SetDeadline(time.Time{}); e != nil {
 			err = e
 		}
 	}()
@@ -279,111 +299,6 @@ func (f *fudp) pongCSSwapKey() (err error) {
 		}
 	}
 
-	sconn := sconn.NewSconn(f.rawConn)
-	tconn := tls.Server(sconn, f.tlsCfg)
-	if err := tconn.SetDeadline(time.Now().Add(constant.RTT << 3)); err != nil {
-		return err
-	}
-	if err = tconn.Handshake(); err != nil {
-		return err
-	}
-
-	if err = f.pongSwapSecertOverTLS(); err != nil {
-		return err
-	}
-	if err = tconn.Close(); err != nil {
-		return err
-	}
+	f.key, err = utls.Server(f.rawConn, f.tlsCfg)
 	return
-}
-
-// genKeyAndgcm 如果密钥为空则生成密钥; 并且初始化gcm实例
-func (f *fudp) genKeyAndgcm() error {
-	if tk := [16]byte{}; tk == f.key {
-		if _, err := rand.Read(f.key[:]); err != nil {
-			return err
-		}
-	}
-
-	if block, err := aes.NewCipher(f.key[:]); err != nil {
-		return err
-	} else {
-		if f.gcm, err = cipher.NewGCM(block); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// pingSwapSecertOverTLS 基于TLS交换密钥, 用于CS模式Client
-func (f *fudp) pingSwapSecertOverTLS(selfRootCa []*x509.Certificate) error {
-	cfg := &tls.Config{
-		CipherSuites: []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256},
-		RootCAs:      x509.NewCertPool(),
-	}
-	for _, v := range selfRootCa {
-		cfg.RootCAs.AddCert(v)
-	}
-
-	sconn := sconn.NewSconn(f.rawConn)
-	tconn := tls.Client(sconn, cfg)
-	if err := tconn.SetDeadline(time.Now().Add(constant.RTT << 3)); err != nil {
-		return err
-	}
-	if err := tconn.Handshake(); err != nil {
-		return err
-	}
-
-	var buf []byte = make([]byte, constant.SIZE)
-	if _, err := tconn.Write(f.key[:]); err != nil {
-		return err
-	}
-	if err := tconn.SetReadDeadline(time.Now().Add(constant.RTT << 1)); err != nil {
-		return err
-	}
-	for {
-		if n, err := tconn.Read(buf); err != nil {
-			return err
-		} else if n != 16 {
-			continue
-		} else {
-			if bytes.Equal(buf, f.key[:]) {
-				return nil
-			} else {
-				break
-			}
-		}
-	}
-	return errors.New("handshake timeout")
-}
-
-func (f *fudp) pongSwapSecertOverTLS() error {
-	cfg := &tls.Config{ClientAuth: tls.VerifyClientCertIfGiven, Certificates: f.tlsCfg.Certificates}
-	sconn := sconn.NewSconn(f.rawConn)
-	tconn := tls.Server(sconn, cfg)
-	defer tconn.Close()
-
-	if err := tconn.SetDeadline(time.Now().Add(constant.RTT << 8)); err != nil {
-		return err
-	}
-	if err := tconn.Handshake(); err != nil {
-		return err
-	}
-
-	var buf = make([]byte, constant.SIZE)
-	if err := tconn.SetReadDeadline(time.Now().Add(constant.RTT << 1)); err != nil {
-		return err
-	}
-	for {
-		if n, err := tconn.Read(buf); err != nil {
-			return err
-		} else {
-			if n == constant.SIZE {
-				copy(f.key[:], buf[:n])
-				tconn.Write(f.key[:])
-			} else {
-				continue
-			}
-		}
-	}
 }

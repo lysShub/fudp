@@ -11,6 +11,9 @@ type fudp struct {
 	// fudp 表示一次fudp传输
 	// 无论是Client还是Server, 都能上传或
 
+	isP2P    bool // mode
+	isClient bool // role
+
 	// 原始connected conn
 	rawConn *net.UDPConn
 
@@ -40,3 +43,7 @@ func (f *fudp) Pull(path string, url string) {}
 
 // Push 上传文件到服务器
 func (f *fudp) Push(path string, url string) {}
+
+func (f *fudp) Close() error {
+	return f.rawConn.Close()
+}
