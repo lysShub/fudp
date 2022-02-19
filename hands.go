@@ -26,7 +26,6 @@ import (
 // handshake
 // 握手后得到conn
 // 握手时不可靠, 任何错误都会导致握手失败, 包括超时; 且超时时间很短,只有2RTT
-// 握手发生失败时直接退出即可
 
 const mcap = constant.MTU + packet.Append
 

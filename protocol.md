@@ -256,3 +256,18 @@ func (g *gcmAsm) MySeal(dst, nonce, plaintext, data []byte) []byte {
 }
 ```
 
+
+
+
+
+
+
+
+
+
+
+
+
+```shell
+```
+

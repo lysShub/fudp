@@ -8,7 +8,7 @@ import (
 	"github.com/lysShub/fudp/constant"
 )
 
-const Append = 29 // package后数据最大增加量
+const Append = 29 // package后数据最大增加量 16 + [0,13]
 var none []byte = make([]byte, 12)
 
 // pack 打包, 确保data有足够的容量, 否则会打包失败
