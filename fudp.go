@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"net"
 	"net/url"
+	"sync"
 )
 
 type fudp struct {
@@ -13,6 +14,8 @@ type fudp struct {
 
 	isP2P    bool // mode
 	isClient bool // role
+
+	strict bool // 严格模式
 
 	// 原始connected conn
 	rawConn *net.UDPConn
@@ -36,6 +39,13 @@ type fudp struct {
 
 	// CS模式基于TLS交换密钥, 仅仅CS模式被设置
 	tlsCfg *tls.Config
+
+	concurrent int // 并行传输数
+
+	// -------------------------
+	files *file
+
+	sync.RWMutex
 }
 
 // Pull 从服务器下载文件
