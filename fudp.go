@@ -43,7 +43,7 @@ type fudp struct {
 	concurrent int // 并行传输数
 
 	// -------------------------
-	files *file
+	files *file // 一个文件的实例
 
 	sync.RWMutex
 }

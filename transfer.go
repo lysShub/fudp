@@ -2,7 +2,7 @@ package fudp
 
 import (
 	"fmt"
-	"os"
+	"io"
 	"unsafe"
 
 	"github.com/lysShub/fudp/constant"
@@ -17,19 +17,24 @@ func (f *fudp) Write() {
 
 }
 
-type write struct {
-	speedfactor int // 传输系数
+func (f *fudp) write() error {
+	var file *file
+	if file = f.getFile(); file == nil {
+		return io.EOF
+	}
+
+	// 同步
+	var start int64
+	file.add()
+	start = writeSync(file)
+
+	//
+	fmt.Println(start)
+
+	return nil
 }
 
-func (f *fudp) write(fh *os.File, name string) {
-
-	fstat, _ := fh.Stat()
-	// sync
-	fmt.Println(fstat)
-
-}
-
-func (f *fudp) writeSync(fs uint64) {
+func writeSync(file *file) int64 {
 	// 同步的pt=0, fi递增； 0值fi发送得文件大小
 	var da = make([]byte, constant.MTU, mcap)
 	n := copy(da[0:], (*(*[8]byte)(unsafe.Pointer(&fs)))[:])
