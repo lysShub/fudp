@@ -3,108 +3,53 @@ package packet
 import (
 	"crypto/cipher"
 	"errors"
-	"strconv"
-
-	"github.com/lysShub/fudp/constant"
+	"unsafe"
 )
 
-const Append = 29 // package后数据最大增加量 16 + [0,13]
+const HeadSize = 9              // 包头大小
+const ExpendLen = HeadSize + 16 // 打包后增加的数据长度; 16为对称加密增加数据
 var none []byte = make([]byte, 12)
 
-// pack 打包, 确保data有足够的容量, 否则会打包失败
-// 	@ data:  容量至少应该比长度大29
-// 	@ pt:    包类型
-// 	@ bias:  数据偏置
-// 	@ fi:    文件序号
-// 	@ gcm:   gcm实例, 为nil表示不加密
-// 返回包的有效长度
-func Pack(data []byte, fi uint32, bias uint64, pt uint8, gcm cipher.AEAD) (length uint16, err error) {
+// Pack
+// data: 数据本身, 确保cap(da)-len(da) > 9+16, 否则会重新分配内存
+// bias: 偏移
+// other: 备用字段, 取低4位
+// packageType: 数据包类型, 取低4位
+func Pack(data []byte, bias uint64, other uint8, packageType uint8, gcm cipher.AEAD) (packet []byte) {
+	var head [9]byte
+	head[8] = ((other & 0b1111) << 4) + packageType&0b1111
+	copy(head[0:], (*(*[8]byte)(unsafe.Pointer(&bias)))[:])
 
-	if cap(data)-len(data) < 29 {
-		return 0, errors.New("expect capacity of data more than length 29, actual len(data):" + strconv.Itoa(len(data)) + "   cap(data):" + strconv.Itoa(cap(data)))
-	} else if fi > 0x3FFFFFFF {
-		return 0, errors.New("expcet fi <=0x3FFFFFFF, actual " + strconv.FormatInt(int64(fi), 0xf))
-	} else if pt > 0b11111 {
-		return 0, errors.New("expcet pt <=0x1F, actual " + strconv.FormatInt(int64(pt), 16))
-	} else if len(data) > constant.MTU { // UDP MTU为65535; 65535-13-16=65506
-		return 0, errors.New("expect length of parameter date not more than 65506, actual :" + strconv.Itoa(len(data)))
-	}
-
-	var head []byte = make([]byte, 0, 13)
-
-	var lfi, foo uint8 = 0, uint8(fi&0b111111) << 2
-	fi = fi >> 6
-	for i := 2; i >= 0; i-- {
-		if fi>>(8*i) > 0 {
-			head = append(head, uint8(fi>>(8*i)))
-		} else {
-			break
-		}
-	}
-	lfi = uint8(len(head))
-	head = append(head, foo+lfi&0b11)
-
-	for i := 7; i >= 1; i-- {
-		if bias>>(8*i) <= bias {
-			head = append(head, uint8(bias>>(8*i)))
-		} else {
-			break
-		}
-	}
-	head = append(head, uint8(bias))
-	lbias := uint8(len(head)) - lfi - 1
-	head = append(head, ((lbias-1)&0b111)<<5+pt&0b11111)
-
-	hl := lfi + lbias + 2
 	if gcm != nil {
-		data = gcm.Seal(data[:0], none, data, head[:hl])
-		data = append(data[:], head[:hl]...)
-		return uint16(len(data)), nil
-	} else {
-		data = append(data, head[:hl]...)
-		return uint16(len(data)), nil
+		data = gcm.Seal(data[:0], none, data, head[:])
 	}
+	data = append(data, head[0:]...)
+	return data
 }
 
-// parse 解包
-// 	@ data: 协议包格式的数据
-// 	@ gcm:	gcm实例, 为nil表示不解密
-func Parse(data []byte, gcm cipher.AEAD) (length uint16, fi uint32, bias uint64, pt uint8, err error) {
-	l := len(data) - 1
+var ErrPacketFormat = errors.New("invalid package format")
 
-	if l >= 2 {
-		pt = 0b11111 & data[l]
-	} else {
-		return 0, 0, 0, 0, errors.New("parse fail: package at least 3 Bytes")
+func Parse(packet []byte, gcm cipher.AEAD) (data []byte, bias uint64, other uint8, packageType uint8, err error) {
+	l := len(packet)
+	if l < HeadSize {
+		return nil, 0, 0, 0, ErrPacketFormat
 	}
 
-	var lbias, i uint8 = (data[l]&0b11100000)>>5 + 1, 0
-	for l = l - 1; i < lbias && l > 0; l, i = l-1, i+1 {
-		bias = bias + uint64(data[l])<<(8*i)
-	}
-	if lbias != i || l < 0 {
-		return 0, 0, 0, 0, errors.New("parse fail: bias")
-	}
-
-	var lfi, j uint8 = data[l] & 0b11, 0
-	fi = uint32(data[l]&0b11111100) >> 2
-	for l = l - 1; j < lfi && l >= 0; l, j = l-1, j+1 {
-		fi = fi + uint32(data[l])<<(j*8+6)
-	}
-	if j != lfi {
-		return 0, 0, 0, 0, errors.New("parse fail: lfi")
-	}
+	other, packageType = packet[l-1]>>4, packet[l-1]&0b1111
+	tmp := packet[l-9 : l-1]
+	bias = *(*uint64)(*(*unsafe.Pointer)(unsafe.Pointer(&tmp)))
 
 	if gcm != nil {
-		// l 密文最后一字节在data中位置
-		data, err = gcm.Open(data[:0], none, data[:l+1], data[l+1:])
+		data, err = gcm.Open(packet[:0], none, packet[:l-HeadSize], packet[l-HeadSize:])
 		if err != nil {
-			length = 0
-		} else {
-			length = uint16(len(data))
+			if l-HeadSize < 16 {
+				return nil, 0, 0, 0, ErrPacketFormat
+			}
+			return nil, 0, 0, 0, err
 		}
 	} else {
-		length = uint16(l) + 1
+		data = packet[:l-HeadSize]
 	}
+
 	return
 }

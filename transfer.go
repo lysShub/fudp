@@ -3,7 +3,6 @@ package fudp
 import (
 	"fmt"
 	"io"
-	"unsafe"
 
 	"github.com/lysShub/fudp/constant"
 )
@@ -37,11 +36,11 @@ func (f *fudp) write() error {
 func writeSync(file *file) int64 {
 	// 同步的pt=0, fi递增； 0值fi发送得文件大小
 	var da = make([]byte, constant.MTU, mcap)
-	n := copy(da[0:], (*(*[8]byte)(unsafe.Pointer(&fs)))[:])
+	// n := copy(da[0:], (*(*[8]byte)(unsafe.Pointer(&fs)))[:])
 
 	// packet.Pack(da[:n:cap(da)],)
-	fmt.Println(n)
-
+	fmt.Println(da)
+	return 0
 }
 
 func (f *fudp) Reade()     {}

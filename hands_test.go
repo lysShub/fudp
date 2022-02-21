@@ -108,4 +108,5 @@ PrEgq9SjKDpWBZQC+kNZdM5xzJrv3bLqcyOSJywZfEpTZzW7sxko4maB
 	statueCode, err := ci.handPing(cc)
 	require.NoError(t, err)
 	require.Equal(t, uint16(200), statueCode)
+	// time.Sleep(time.Second * 5)
 }

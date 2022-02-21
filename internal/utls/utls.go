@@ -20,18 +20,17 @@ var ErrTLSHandshake = errors.New("tls handshake failed")
 var ErrTLSHandshakeTimeout = errors.New("tls handshake timeout")
 var ErrTLSHandshakeAuthority = errors.New("tls certificate signed by unknown authority")
 
-// Server
+// Server 交换密钥
 func Server(conn *net.UDPConn, tlsCfg *tls.Config) (key [16]byte, err error) {
-	// 安全信道建立后, 接收key并回复此key, 之后返回key
 
 	cfg := &tls.Config{ClientAuth: tls.VerifyClientCertIfGiven, Certificates: tlsCfg.Certificates}
 	sconn := NewSconn(conn)
+	defer sconn.Close() // 不会close UDP Conn
 	tconn := tls.Server(sconn, cfg)
-	defer tconn.Close() // 不会close UDP Conn
 	defer tconn.SetDeadline(time.Time{})
 	defer func() { err = rewriteErr(err) }() // handle error
 
-	if err = tconn.SetDeadline(time.Now().Add(constant.RTT << 8)); err != nil {
+	if err = tconn.SetDeadline(time.Now().Add(constant.RTT << 4)); err != nil {
 		return
 	}
 	if err = tconn.Handshake(); err != nil {
@@ -74,12 +73,12 @@ func Client(conn *net.UDPConn, key [16]byte, server string, rootCas ...*x509.Cer
 	}
 
 	sconn := NewSconn(conn)
+	defer sconn.Close() // 不会关闭raw conn, 注意buffer中是否还存在剩余数据
 	tconn := tls.Client(sconn, cfg)
-	defer tconn.Close() // 不会close UDP Conn
 	defer tconn.SetDeadline(time.Time{})
 	defer func() { err = rewriteErr(err) }() // handle error
 
-	if err = tconn.SetDeadline(time.Now().Add(constant.RTT << 3)); err != nil {
+	if err = tconn.SetDeadline(time.Now().Add(constant.RTT << 4)); err != nil {
 		return
 	}
 	if err = tconn.Handshake(); err != nil {
@@ -114,7 +113,6 @@ func rewriteErr(err error) error {
 		} else if strings.Contains(serr, "timeout") {
 			err = ErrTLSHandshakeTimeout
 		} else {
-			fmt.Println(err.Error())
 			err = ErrTLSHandshake
 		}
 	}
@@ -122,14 +120,19 @@ func rewriteErr(err error) error {
 }
 
 type sconn struct {
-	conn net.Conn
+	// 使UDP Conn成为流式
+	// 注意Close时：
+	// 		1. 不会关闭原始的udp conn
+	// 		2. buf中是否还存在剩余数据(当前忽略了此问题)
+
+	conn *net.UDPConn
 
 	buf  *bytes.Buffer
 	rLen int
 	lock sync.Mutex
 }
 
-func NewSconn(conn net.Conn) *sconn {
+func NewSconn(conn *net.UDPConn) *sconn {
 	return &sconn{
 		conn: conn,
 

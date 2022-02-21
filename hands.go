@@ -2,7 +2,8 @@ package fudp
 
 /*
   握手
-  握手时不可靠, 任何错误都会导致握手失败, 包括超时; 超时时长为2RTT
+  握手时不可靠, 任何错误都会导致握手失败, 包括超时;
+
 */
 
 import (
@@ -23,11 +24,7 @@ import (
 	"github.com/lysShub/fudp/packet"
 )
 
-// handshake
-// 握手后得到conn
-// 握手时不可靠, 任何错误都会导致握手失败, 包括超时; 且超时时间很短,只有2RTT
-
-const mcap = constant.MTU + packet.Append
+const mcap = constant.MTU + packet.ExpendLen
 
 // handPing 主动握手
 // selfRootCa:	CS模式时, 使用自签证书需要设置
@@ -35,7 +32,7 @@ func (f *fudp) handPing(selfRootCa ...*x509.Certificate) (stateCode uint16, err 
 	defer func() {
 		f.rawConn.SetDeadline(time.Time{})
 		if e := recover(); e != nil {
-			err = errors.New("unknown error")
+			err = errors.New("unknown handshake panic")
 		}
 	}()
 	defer func() { f.rawConn.SetDeadline(time.Time{}) }()
@@ -45,31 +42,25 @@ func (f *fudp) handPing(selfRootCa ...*x509.Certificate) (stateCode uint16, err 
 		return 0, err
 	}
 	if f.isClient && !f.isP2P {
-		if n, err := packet.Pack(da[:0:cap(da)], 0, 0, 0, nil); err != nil {
+		if _, err = f.rawConn.Write(packet.Pack(da[:0], 0, 0, 0, nil)); err != nil {
 			return 0, err
-		} else {
-			if _, err = f.rawConn.Write(da[:n]); err != nil {
-				return 0, err
-			}
 		}
+
 		// tls 交换密钥
 		if err = utls.Client(f.rawConn, f.key, f.url.Hostname(), selfRootCa...); err != nil {
 			return 0, err
 		}
 	} else if f.isClient && f.isP2P {
 		n := copy(da[0:], f.key[:])
-		if n, err := packet.Pack(da[0:n:cap(da)], 0, 0, 0, f.gcm); err != nil {
+		if _, err = f.rawConn.Write(packet.Pack(da[0:n], 0, 0, 0, f.gcm)); err != nil {
 			return 0, err
-		} else {
-			if _, err = f.rawConn.Write(da[:n]); err != nil {
-				return 0, err
-			}
 		}
 	} else {
 		return 0, errors.New("unknown work mode")
 	}
+	// 密钥交换完成, 且gcm被初始化
 
-	// wait pong 读取握手包1
+	// 读取握手包1
 	var n int
 	if err = f.rawConn.SetReadDeadline(time.Now().Add(constant.RTT * 2)); err != nil {
 		return 0, err
@@ -78,28 +69,23 @@ func (f *fudp) handPing(selfRootCa ...*x509.Certificate) (stateCode uint16, err 
 		if n, err = f.rawConn.Read(da); err != nil {
 			return 0, err
 		} else {
-			if f.expHandPackage(1, da[:n:cap(da)]) >= 0 {
+			if ok, _ := f.expHandPackage(1, da[:n:cap(da)]); ok {
 				break
 			}
 		}
 	}
-	if err = f.rawConn.SetReadDeadline(time.Time{}); err != nil {
+	if err = f.rawConn.SetDeadline(time.Time{}); err != nil {
 		return 0, err
 	}
-	// 密钥交换完成, 剩余握手流程相同。此时、无论模式, 双方的key不为空, 且gcm被初始化
 
-	// request 发送数据包2 即请求url
+	// 发送数据包2 即请求url
 	burl := []byte(f.url.String())
 	n = copy(da[0:], burl)
-	if len, err := packet.Pack(da[0:n:cap(da)], 2, 0, 0, f.gcm); err != nil {
+	if _, err = f.rawConn.Write(packet.Pack(da[0:n:cap(da)], 2, 0, 0, f.gcm)); err != nil {
 		return 0, err
-	} else {
-		if _, err = f.rawConn.Write(da[:len]); err != nil {
-			return 0, err
-		}
 	}
 
-	// wait response 接受握手包3, statusCode
+	// 接受握手包3, statusCode
 	if err = f.rawConn.SetReadDeadline(time.Now().Add(constant.RTT * 2)); err != nil {
 		return 0, err
 	}
@@ -107,7 +93,7 @@ func (f *fudp) handPing(selfRootCa ...*x509.Certificate) (stateCode uint16, err 
 		if n, err = f.rawConn.Read(da); err != nil {
 			return 0, err
 		} else {
-			if f.expHandPackage(3, da[:n:cap(da)]) >= 0 {
+			if ok, _ := f.expHandPackage(3, da[:n:cap(da)]); ok {
 				return uint16(da[0]) + uint16(da[1])<<8, nil
 			}
 		}
@@ -118,7 +104,7 @@ func (f *fudp) handPing(selfRootCa ...*x509.Certificate) (stateCode uint16, err 
 func (f *fudp) handPong() (err error) {
 	defer func() {
 		if e := recover(); e != nil {
-			err = errors.New("unknown error")
+			err = errors.New("unknown handshake panic")
 		}
 	}()
 
@@ -141,13 +127,9 @@ func (f *fudp) handPong() (err error) {
 	var da []byte = make([]byte, mcap)
 
 	// 回复握手包1
-	if n, err := packet.Pack(da[0:0:mcap], 1, 0, 0, f.gcm); err != nil {
+	if _, err = f.rawConn.Write(packet.Pack(da[0:0:mcap], 1, 0, 0, f.gcm)); err != nil {
+		fmt.Println(err.Error())
 		return err
-	} else {
-		if _, err = f.rawConn.Write(da[:n]); err != nil {
-			fmt.Println(err.Error())
-			return err
-		}
 	}
 
 	var statueCode int // 状态码
@@ -160,8 +142,8 @@ func (f *fudp) handPong() (err error) {
 		if n, err := f.rawConn.Read(da); err != nil {
 			return err
 		} else if n > 0 {
-			if len := f.expHandPackage(2, da[:n:cap(da)]); len > 0 {
-				if f.url, err = url.Parse(string(da[:len])); err != nil {
+			if ok, da := f.expHandPackage(2, da[:n:cap(da)]); ok {
+				if f.url, err = url.Parse(string(da)); err != nil {
 					statueCode = http.StatusBadRequest
 				} else {
 					// handle func
@@ -170,7 +152,7 @@ func (f *fudp) handPong() (err error) {
 						rPath, statueCode = f.handleFn(f.url)
 					} else {
 						if fn := Handle(f.url.Path); fn == nil {
-							rPath, statueCode = "", http.StatusNotFound // 不存在此路由
+							rPath, statueCode = "", http.StatusNotFound // 路由不存在
 						} else {
 							rPath, statueCode = fn(f.url)
 						}
@@ -188,14 +170,10 @@ func (f *fudp) handPong() (err error) {
 		return err
 	}
 
-	// 回复 握手包3
+	// 回复握手包3
 	da[0], da[1] = byte(statueCode), byte(statueCode>>8)
-	if n, err := packet.Pack(da[:2:cap(da)], 3, 0, 0, f.gcm); err != nil {
+	if _, err = f.rawConn.Write(packet.Pack(da[:2:cap(da)], 3, 0, 0, f.gcm)); err != nil {
 		return err
-	} else {
-		if _, err = f.rawConn.Write(da[:n]); err != nil {
-			return err
-		}
 	}
 
 	if statueCode/100 == 2 {
@@ -224,25 +202,17 @@ func (f *fudp) genKeyAndgcm() error {
 }
 
 // expHandPackage 判断是否时期望的数据包, 返回-1表示不是期望的数据包
-func (f *fudp) expHandPackage(packageIndex int, da []byte) int {
-	len, fi, bi, pt, err := packet.Parse(da, f.gcm)
-	if (err == nil) && (fi == uint32(packageIndex) && bi == 0 && pt == 0) {
-		return int(len)
+func (f *fudp) expHandPackage(packageIndex int, da []byte) (bool, []byte) {
+	da, bi, other, pt, err := packet.Parse(da, f.gcm)
+	if (err == nil) && (bi == uint64(packageIndex) && other == 0 && pt == 0) {
+		return true, da
 	}
-	return -1
+	return false, da
 }
 
 // pongP2PSwapKey server P2P模式交换密钥
 func (f *fudp) pongP2PSwapKey() (err error) {
-	if f.gcm == nil {
-		if block, err := aes.NewCipher(f.key[:]); err != nil {
-			return err
-		} else {
-			if f.gcm, err = cipher.NewGCM(block); err != nil {
-				return err
-			}
-		}
-	}
+
 	defer func() {
 		if e := f.rawConn.SetDeadline(time.Time{}); e != nil {
 			err = e
@@ -258,15 +228,10 @@ func (f *fudp) pongP2PSwapKey() (err error) {
 		if n, err := f.rawConn.Read(da); err != nil {
 			return err
 		} else if n > 0 {
-			if len, fi, bi, pt, err := packet.Parse(da[:n], f.gcm); err != nil {
-				return err
+			if ok, _ := f.expHandPackage(0, da[:n]); ok {
+				break
 			} else {
-				if len != constant.SIZE || fi != 0 || bi != 0 || pt != 0 {
-					time.Sleep(constant.RTT >> 2)
-					continue
-				} else {
-					break
-				}
+				time.Sleep(constant.RTT >> 2)
 			}
 		}
 	}
@@ -279,6 +244,7 @@ func (f *fudp) pongCSSwapKey() (err error) {
 			err = e
 		}
 	}()
+
 	var da []byte = make([]byte, mcap)
 
 	if err = f.rawConn.SetReadDeadline(time.Now().Add(constant.RTT << 2)); err != nil {
@@ -288,12 +254,8 @@ func (f *fudp) pongCSSwapKey() (err error) {
 		if n, err := f.rawConn.Read(da); err != nil {
 			return err
 		} else {
-			if len, fi, bi, pt, err := packet.Parse(da[:n], f.gcm); err != nil {
-				return err
-			} else {
-				if len == 0 && fi == 0 && bi == 0 && pt == 0 {
-					break
-				}
+			if ok, _ := f.expHandPackage(0, da[:n]); ok {
+				break
 			}
 		}
 	}
