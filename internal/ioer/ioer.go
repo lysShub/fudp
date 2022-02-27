@@ -13,14 +13,13 @@ import (
 // UDP路由(根据raddr)
 // 当前只支持IPv4
 
-const packetmtu uint16 = constant.MTU + 13 + 2 //
-const readbuffer int = 4 << 10                 // 默认缓冲 4KB
+const readbuffer int = 4 << 10 // 默认缓冲 4KB
 type Listener struct {
 	laddr *net.UDPAddr
 	conn  *net.UDPConn
 
-	buff [packetmtu]byte // 前两个字节存放数据长度
-	m    map[int64]*Conn // 先使用map, 以后改为树
+	buff [constant.MTU]byte // 前两个字节存放数据长度
+	m    map[int64]*Conn    // 先使用map, 以后改为树
 	sync.Mutex
 
 	done              bool
@@ -34,7 +33,7 @@ type Conn struct {
 	deadline *time.Ticker
 	done     bool // 是否关闭
 
-	buff [packetmtu]byte // 前2个字节是payload的长度
+	buff [constant.MTU]byte // 前2个字节是payload的长度
 	spin spin
 
 	// connected

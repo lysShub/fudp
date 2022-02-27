@@ -4,10 +4,10 @@ import (
 	"crypto/cipher"
 	"errors"
 	"unsafe"
+
+	"github.com/lysShub/fudp/constant"
 )
 
-const HeadSize = 9              // 包头大小
-const ExpendLen = HeadSize + 16 // 打包后增加的数据长度; 16为对称加密增加数据
 var none []byte = make([]byte, 12)
 
 // Pack
@@ -29,26 +29,26 @@ func Pack(data []byte, bias uint64, other uint8, packageType uint8, gcm cipher.A
 
 var ErrPacketFormat = errors.New("invalid package format")
 
-func Parse(packet []byte, gcm cipher.AEAD) (data []byte, bias uint64, other uint8, packageType uint8, err error) {
+func Parse(packet []byte, gcm cipher.AEAD) (data []byte, bias int64, other uint8, packageType uint8, err error) {
 	l := len(packet)
-	if l < HeadSize {
+	if l < constant.HeadSize {
 		return nil, 0, 0, 0, ErrPacketFormat
 	}
 
 	other, packageType = packet[l-1]>>4, packet[l-1]&0b1111
 	tmp := packet[l-9 : l-1]
-	bias = *(*uint64)(*(*unsafe.Pointer)(unsafe.Pointer(&tmp)))
+	bias = *(*int64)(*(*unsafe.Pointer)(unsafe.Pointer(&tmp)))
 
 	if gcm != nil {
-		data, err = gcm.Open(packet[:0], none, packet[:l-HeadSize], packet[l-HeadSize:])
+		data, err = gcm.Open(packet[:0], none, packet[:l-constant.HeadSize], packet[l-constant.HeadSize:])
 		if err != nil {
-			if l-HeadSize < 16 {
+			if l-constant.HeadSize < 16 {
 				return nil, 0, 0, 0, ErrPacketFormat
 			}
 			return nil, 0, 0, 0, err
 		}
 	} else {
-		data = packet[:l-HeadSize]
+		data = packet[:l-constant.HeadSize]
 	}
 
 	return

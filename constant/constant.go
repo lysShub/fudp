@@ -9,9 +9,9 @@ import (
 
 // 定量
 
-// 协议包最大的payload大小, 单位字节
-// 协议包头大小为[3,13]字节
-const MTU = 5000
+const MTU = 65536                      // fudp协议数据包最大大小（包括包头）
+const HeadSize = 9                     // fudp协议数据包头大小
+const MaxPayload = MTU - HeadSize - 16 // fudp协议数据包最大承载数据大小; 16为AES加密增加的数据
 
 // 握手开始后, 整个握手过程的超时时间
 // 理论耗时：C端1.5RTT, S端1RTT

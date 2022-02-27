@@ -57,3 +57,12 @@ func (f *fudp) Push(path string, url string) {}
 func (f *fudp) Close() error {
 	return f.rawConn.Close()
 }
+
+// Read(b []byte) (n int, err error)
+// Write(b []byte) (n int, err error)
+// Close() error
+// LocalAddr() Addr
+// RemoteAddr() Addr
+// SetDeadline(t time.Time) error
+// SetReadDeadline(t time.Time) error
+// SetWriteDeadline(t time.Time) error

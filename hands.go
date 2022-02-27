@@ -24,8 +24,6 @@ import (
 	"github.com/lysShub/fudp/packet"
 )
 
-const mcap = constant.MTU + packet.ExpendLen
-
 // handPing 主动握手
 // selfRootCa:	CS模式时, 使用自签证书需要设置
 func (f *fudp) handPing(selfRootCa ...*x509.Certificate) (stateCode uint16, err error) {
@@ -36,7 +34,7 @@ func (f *fudp) handPing(selfRootCa ...*x509.Certificate) (stateCode uint16, err 
 		}
 	}()
 	defer func() { f.rawConn.SetDeadline(time.Time{}) }()
-	var da []byte = make([]byte, mcap)
+	var da []byte = make([]byte, constant.MTU)
 
 	if err := f.genKeyAndgcm(); err != nil {
 		return 0, err
@@ -124,10 +122,10 @@ func (f *fudp) handPong() (err error) {
 	}
 	// 已交换完成密钥 并初始化gcm
 
-	var da []byte = make([]byte, mcap)
+	var da []byte = make([]byte, constant.MTU)
 
 	// 回复握手包1
-	if _, err = f.rawConn.Write(packet.Pack(da[0:0:mcap], 1, 0, 0, f.gcm)); err != nil {
+	if _, err = f.rawConn.Write(packet.Pack(da[0:0:constant.MTU], 1, 0, 0, f.gcm)); err != nil {
 		fmt.Println(err.Error())
 		return err
 	}
@@ -202,9 +200,9 @@ func (f *fudp) genKeyAndgcm() error {
 }
 
 // expHandPackage 判断是否时期望的数据包, 返回-1表示不是期望的数据包
-func (f *fudp) expHandPackage(packageIndex int, da []byte) (bool, []byte) {
+func (f *fudp) expHandPackage(packageIndex int64, da []byte) (bool, []byte) {
 	da, bi, other, pt, err := packet.Parse(da, f.gcm)
-	if (err == nil) && (bi == uint64(packageIndex) && other == 0 && pt == 0) {
+	if (err == nil) && (bi == packageIndex && other == 0 && pt == 0) {
 		return true, da
 	}
 	return false, da
@@ -219,7 +217,7 @@ func (f *fudp) pongP2PSwapKey() (err error) {
 		}
 	}()
 
-	var da []byte = make([]byte, mcap)
+	var da []byte = make([]byte, constant.MTU)
 	if err = f.rawConn.SetReadDeadline(time.Now().Add(constant.RTT << 1)); err != nil {
 		return err
 	}
@@ -245,7 +243,7 @@ func (f *fudp) pongCSSwapKey() (err error) {
 		}
 	}()
 
-	var da []byte = make([]byte, mcap)
+	var da []byte = make([]byte, constant.MTU)
 
 	if err = f.rawConn.SetReadDeadline(time.Now().Add(constant.RTT << 2)); err != nil {
 		return err

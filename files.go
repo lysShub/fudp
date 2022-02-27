@@ -13,7 +13,10 @@ type file struct {
 	fh   *os.File
 	name string // 分割符为"/"
 	size int64
-	stat *atomic.Uint32 // 状态
+	mode os.FileMode
+
+	// 文件状态
+	stat *atomic.Uint32
 
 	back *file
 	next *file
@@ -48,6 +51,7 @@ func (f *fudp) prepare() (err error) {
 				if fh, e := os.Open(path); e == nil {
 					name, _ := filepath.Rel(f.wpath, path)
 					name = filepath.ToSlash(name)
+
 					if f.files == nil {
 						f.files = &file{fh: fh, size: info.Size(), name: name}
 					} else {
